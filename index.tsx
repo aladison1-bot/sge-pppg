@@ -284,11 +284,13 @@ const App = () => {
   const handleAddRegistro = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const tipo = formData.get('tipo') as TipoRegistro;
+    
     const novo: Registro = {
       id: Math.random().toString(36).substr(2, 9),
-      tipo: formData.get('tipo') as TipoRegistro,
-      nomePreso: formData.get('nomePreso') as string,
-      prontuario: formData.get('prontuario') as string || '',
+      tipo: tipo,
+      nomePreso: tipo === 'Operação Externa' ? '-' : (formData.get('nomePreso') as string),
+      prontuario: tipo === 'Operação Externa' ? '-' : (formData.get('prontuario') as string || ''),
       destino: formData.get('destino') as string,
       quarto: formData.get('quarto') as string || undefined,
       dataHora: formData.get('dataHora') as string,
@@ -313,11 +315,13 @@ const App = () => {
     e.preventDefault();
     if (!isEditing) return;
     const formData = new FormData(e.currentTarget);
+    const tipo = formData.get('tipo') as TipoRegistro;
+    
     const updated = registros.map(r => r.id === isEditing.id ? {
       ...r,
-      tipo: formData.get('tipo') as TipoRegistro,
-      nomePreso: formData.get('nomePreso') as string,
-      prontuario: formData.get('prontuario') as string || '',
+      tipo: tipo,
+      nomePreso: tipo === 'Operação Externa' ? '-' : (formData.get('nomePreso') as string),
+      prontuario: tipo === 'Operação Externa' ? '-' : (formData.get('prontuario') as string || ''),
       destino: formData.get('destino') as string,
       quarto: formData.get('quarto') as string || undefined,
       dataHora: formData.get('dataHora') as string,
@@ -351,7 +355,9 @@ const App = () => {
       const matchSearch = r.nomePreso.toLowerCase().includes(lowerSearch) || 
                           r.prontuario.toLowerCase().includes(lowerSearch) ||
                           r.risco.toLowerCase().includes(lowerSearch) ||
-                          r.status.toLowerCase().includes(lowerSearch);
+                          r.status.toLowerCase().includes(lowerSearch) ||
+                          r.tipo.toLowerCase().includes(lowerSearch) ||
+                          r.destino.toLowerCase().includes(lowerSearch);
       
       if (showAllDates) return matchSearch;
 
@@ -386,8 +392,9 @@ const App = () => {
             td { padding: 10px; font-size: 11px; border: 1px solid #e2e8f0; vertical-align: top; }
             .risco-alto { color: #e11d48; font-weight: bold; }
             footer { margin-top: 50px; border-top: 1px solid #e2e8f0; pt: 20px; font-size: 9px; text-align: center; color: #94a3b8; }
-            .signature-space { margin-top: 60px; display: flex; justify-content: center; gap: 100px; }
-            .sig-box { border-top: 1px solid #334155; width: 250px; text-align: center; padding-top: 5px; font-size: 10px; font-weight: bold; text-transform: uppercase; }
+            .signature-space { margin-top: 60px; display: flex; justify-content: center; gap: 80px; }
+            .sig-box { border-top: 1px solid #334155; width: 300px; text-align: center; padding-top: 8px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+            .sig-name { margin-bottom: 4px; font-size: 12px; }
           </style>
         </head>
         <body>
@@ -397,9 +404,8 @@ const App = () => {
               <div class="meta">Sistema de Gestão de Escoltas e Internamentos</div>
             </div>
             <div style="text-align: right">
-              <div class="meta">Data de Referência: ${displayDate}</div>
-              <div class="meta">Operador: ${operatorName}</div>
-              <div class="meta">Exportado em: ${dateNow}</div>
+              <div class="meta">Referência: ${displayDate}</div>
+              <div class="meta">Gerado em: ${dateNow}</div>
             </div>
           </header>
 
@@ -420,7 +426,7 @@ const App = () => {
               ${dailyData.map(r => `
                 <tr>
                   <td>${r.tipo}</td>
-                  <td><strong>${r.nomePreso}</strong><br/>Pront: ${r.prontuario || 'N/A'}</td>
+                  <td>${r.tipo === 'Operação Externa' ? '-' : `<strong>${r.nomePreso}</strong><br/>Pront: ${r.prontuario || 'N/A'}`}</td>
                   <td>${r.destino}${r.quarto ? `<br/>(Q: ${r.quarto})` : ''}</td>
                   <td class="${r.risco === 'Alto' ? 'risco-alto' : ''}">${r.risco}</td>
                   <td>${r.status}</td>
@@ -433,8 +439,14 @@ const App = () => {
           </table>
 
           <div class="signature-space">
-            <div class="sig-box">Responsável pela Emissão</div>
-            <div class="sig-box">${operatorName}</div>
+            <div class="sig-box">
+              <div class="sig-name">${operatorName}</div>
+              Operador Responsável pela Emissão
+            </div>
+            <div class="sig-box">
+              <div class="sig-name">&nbsp;</div>
+              Chefe do Setor
+            </div>
           </div>
 
           <footer>
@@ -456,12 +468,15 @@ const App = () => {
     const tipo = formData.get('tipo');
     const risco = formData.get('risco');
 
-    if (!nome || !destino) return alert("Preencha nome e destino para sugestão.");
+    if (tipo !== 'Operação Externa' && (!nome || !destino)) return alert("Preencha dados básicos para sugestão.");
+    if (tipo === 'Operação Externa' && !destino) return alert("Preencha o destino.");
 
     setIsGeneratingObs(true);
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     try {
-      const prompt = `Gere uma observação técnica operacional curta e formal para um lançamento de ${tipo} do preso ${nome} para o destino ${destino} com risco ${risco}. Seja conciso.`;
+      const prompt = tipo === 'Operação Externa' 
+        ? `Gere uma observação técnica operacional curta para uma operação externa para o destino ${destino} com risco ${risco}. Seja conciso.`
+        : `Gere uma observação técnica operacional curta e formal para um lançamento de ${tipo} do preso ${nome} para o destino ${destino} com risco ${risco}. Seja conciso.`;
       const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
       const obsTextarea = form.querySelector('textarea[name="observacoes"]') as HTMLTextAreaElement;
       if (obsTextarea) obsTextarea.value = response.text || '';
@@ -646,11 +661,20 @@ const App = () => {
                   ) : filteredBySearchAndDate.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).map(reg => (
                     <tr key={reg.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-8 py-5">
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold text-slate-900">{reg.nomePreso}</p>
-                          {reg.risco === 'Alto' && <span className="bg-rose-100 text-rose-600 text-[8px] font-black px-1.5 py-0.5 rounded uppercase">Alto Risco</span>}
-                        </div>
-                        <p className="text-[10px] text-slate-400 uppercase">PRONT: {reg.prontuario || 'N/A'} • {reg.destino} {showAllDates && `(${new Date(reg.dataHora).toLocaleDateString()})`}</p>
+                        {reg.tipo === 'Operação Externa' ? (
+                          <div>
+                            <p className="font-bold text-slate-900 uppercase text-xs italic">Operação Externa / Comboio</p>
+                            <p className="text-[10px] text-slate-400 uppercase">DESTINO: {reg.destino} {showAllDates && `(${new Date(reg.dataHora).toLocaleDateString()})`}</p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <p className="font-bold text-slate-900">{reg.nomePreso}</p>
+                              {reg.risco === 'Alto' && <span className="bg-rose-100 text-rose-600 text-[8px] font-black px-1.5 py-0.5 rounded uppercase">Alto Risco</span>}
+                            </div>
+                            <p className="text-[10px] text-slate-400 uppercase">PRONT: {reg.prontuario || 'N/A'} • {reg.destino} {showAllDates && `(${new Date(reg.dataHora).toLocaleDateString()})`}</p>
+                          </>
+                        )}
                       </td>
                       {activeTab === 'internamentos' && (
                         <td className="px-8 py-5">
@@ -671,7 +695,9 @@ const App = () => {
                       <td className="px-8 py-5 text-right flex justify-end gap-3">
                         <button onClick={() => setIsEditing(reg)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-lg" title="Editar"><Edit3 size={18} /></button>
                         <button onClick={() => handleDeleteRegistro(reg.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg" title="Excluir"><Trash2 size={18} /></button>
-                        <button onClick={() => { setSelectedReg(reg); setQrModalOpen(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg" title="QR Code"><QrCode size={18} /></button>
+                        {reg.tipo !== 'Operação Externa' && (
+                          <button onClick={() => { setSelectedReg(reg); setQrModalOpen(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg" title="QR Code"><QrCode size={18} /></button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -701,11 +727,20 @@ const App = () => {
                       <option value="Alto">Alto</option>
                     </select>
                   </div>
-                  <input name="nomePreso" placeholder="Nome do Preso" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                  <input name="prontuario" placeholder="Prontuário" required={newModality !== 'Operação Externa'} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                  
+                  {newModality !== 'Operação Externa' ? (
+                    <>
+                      <input name="nomePreso" placeholder="Nome do Preso" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                      <input name="prontuario" placeholder="Prontuário" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                    </>
+                  ) : (
+                    <div className="col-span-1 md:col-span-2 p-4 bg-amber-50 border border-amber-100 rounded-2xl text-[10px] font-bold text-amber-700 uppercase italic">
+                      Lançamento de Operação Externa / Comboio: Identificação de preso individual ocultada.
+                    </div>
+                  )}
                   
                   <div className={newModality === 'Internamento' ? 'col-span-1' : 'col-span-1 md:col-span-2'}>
-                    <label className="text-[10px) font-black uppercase text-slate-400 block mb-2 tracking-widest">Destino</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Destino</label>
                     <input name="destino" placeholder="Local de Destino" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                   </div>
 
@@ -861,8 +896,13 @@ const App = () => {
                     <option value="Alto">Alto</option>
                   </select>
                 </div>
-                <input name="nomePreso" defaultValue={isEditing.nomePreso} placeholder="Nome do Preso" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                <input name="prontuario" defaultValue={isEditing.prontuario} placeholder="Prontuário" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+
+                {isEditing.tipo !== 'Operação Externa' && (
+                  <>
+                    <input name="nomePreso" defaultValue={isEditing.nomePreso} placeholder="Nome do Preso" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                    <input name="prontuario" defaultValue={isEditing.prontuario} placeholder="Prontuário" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                  </>
+                )}
                 
                 <input name="destino" defaultValue={isEditing.destino} placeholder="Destino" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                 

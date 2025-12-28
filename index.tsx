@@ -37,7 +37,9 @@ import {
   MessageSquare,
   Users,
   Shield,
-  Settings
+  Settings,
+  Stethoscope,
+  Briefcase
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import QRCode from 'qrcode';
@@ -61,6 +63,7 @@ interface Registro {
   equipe: string;
   policiais: string;
   dataConclusao?: string;
+  dataAltaMedica?: string;
   createdBy: string;
   createdAt: string;
 }
@@ -78,6 +81,9 @@ interface UserProfile {
   email: string;
   password?: string;
   isTemporary: boolean;
+  fullName?: string;
+  lotacao?: string;
+  setor?: string;
 }
 
 // --- Mock Data ---
@@ -127,11 +133,9 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (email: string) => voi
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastTempPass, setLastTempPass] = useState('');
 
   const getUsers = (): UserProfile[] => {
     const data = localStorage.getItem('sge_users_db');
-    // Pre-populate with a default admin user if DB is empty
     if (!data) {
       const defaultUsers = [{ email: 'admin@pppg.gov.br', password: '123', isTemporary: true }];
       localStorage.setItem('sge_users_db', JSON.stringify(defaultUsers));
@@ -143,7 +147,7 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (email: string) => voi
   const saveUser = (user: UserProfile) => {
     const users = getUsers();
     const index = users.findIndex(u => u.email === user.email);
-    if (index >= 0) users[index] = user;
+    if (index >= 0) users[index] = { ...users[index], ...user };
     else users.push(user);
     localStorage.setItem('sge_users_db', JSON.stringify(users));
   };
@@ -301,8 +305,8 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (email: string) => voi
           </form>
         )}
 
-        <div className="mt-8 pt-8 border-t border-slate-100 text-center text-slate-400 text-[9px] font-black uppercase tracking-widest">
-          Uso Restrito - Polícia Penal - SGE PPPG v1.3.1
+        <div className="mt-8 pt-8 border-t border-slate-100 text-center text-slate-400 text-[10px] font-black uppercase tracking-widest italic">
+          Uso Restrito - SGE
         </div>
       </div>
     </div>
@@ -332,7 +336,13 @@ const App = () => {
   const [selectedReg, setSelectedReg] = useState<Registro | null>(null);
   const [isEditing, setIsEditing] = useState<Registro | null>(null);
 
-  // Security Tab States
+  // Modality states for "Novo Lançamento"
+  const [newModality, setNewModality] = useState<TipoRegistro>('Escolta Operacional');
+
+  // Security / Profile States
+  const [secFullName, setSecFullName] = useState('');
+  const [secLotacao, setSecLotacao] = useState('');
+  const [secSetor, setSecSetor] = useState('');
   const [secNewPassword, setSecNewPassword] = useState('');
   const [secConfirmPassword, setSecConfirmPassword] = useState('');
   const [secStatus, setSecStatus] = useState<{ type: 'success' | 'error', msg: string } | null>(null);
@@ -342,6 +352,18 @@ const App = () => {
     if (savedAuth) {
       setIsAuthenticated(true);
       setUserEmail(savedAuth);
+      
+      // Load current user details
+      const usersData = localStorage.getItem('sge_users_db');
+      if (usersData) {
+        const users: UserProfile[] = JSON.parse(usersData);
+        const currentUser = users.find(u => u.email === savedAuth);
+        if (currentUser) {
+          setSecFullName(currentUser.fullName || '');
+          setSecLotacao(currentUser.lotacao || '');
+          setSecSetor(currentUser.setor || '');
+        }
+      }
     }
   }, []);
 
@@ -357,6 +379,18 @@ const App = () => {
     setIsAuthenticated(true);
     setUserEmail(email);
     localStorage.setItem('sge_auth_v1', email);
+    
+    // Refresh user details state on login
+    const usersData = localStorage.getItem('sge_users_db');
+    if (usersData) {
+      const users: UserProfile[] = JSON.parse(usersData);
+      const currentUser = users.find(u => u.email === email);
+      if (currentUser) {
+        setSecFullName(currentUser.fullName || '');
+        setSecLotacao(currentUser.lotacao || '');
+        setSecSetor(currentUser.setor || '');
+      }
+    }
   };
 
   const handleLogout = () => {
@@ -388,6 +422,7 @@ const App = () => {
       observacoes: formData.get('observacoes') as string || '',
       equipe: formData.get('equipe') as string || '',
       policiais: formData.get('policiais') as string || '',
+      dataAltaMedica: formData.get('dataAltaMedica') as string || undefined,
       createdBy: userEmail,
       createdAt: new Date().toISOString()
     };
@@ -411,6 +446,7 @@ const App = () => {
       observacoes: formData.get('observacoes') as string,
       equipe: formData.get('equipe') as string,
       policiais: formData.get('policiais') as string,
+      dataAltaMedica: formData.get('dataAltaMedica') as string || undefined,
     } : r);
     setRegistros(updated);
     setIsEditing(null);
@@ -438,8 +474,8 @@ const App = () => {
       titulo: formData.get('titulo') as string,
       descricao: formData.get('descricao') as string,
       dataHora: new Date().toISOString(),
-      autor: userEmail.split('@')[0].toUpperCase(),
-      lotacao: 'GRI / PPPG'
+      autor: secFullName || userEmail.split('@')[0].toUpperCase(),
+      lotacao: secLotacao || 'GRI / PPPG'
     };
     setOcorrencias([nova, ...ocorrencias]);
     e.currentTarget.reset();
@@ -447,32 +483,42 @@ const App = () => {
 
   const handleUpdateSecurity = (e: React.FormEvent) => {
     e.preventDefault();
-    if (secNewPassword !== secConfirmPassword) {
-      setSecStatus({ type: 'error', msg: 'Senhas não coincidem.' });
-      return;
-    }
-    if (secNewPassword.length < 6) {
-      setSecStatus({ type: 'error', msg: 'A senha deve ter pelo menos 6 caracteres.' });
-      return;
-    }
+    setSecStatus(null);
 
     const usersData = localStorage.getItem('sge_users_db');
-    if (usersData) {
-      const users: UserProfile[] = JSON.parse(usersData);
-      const idx = users.findIndex(u => u.email === userEmail);
-      if (idx !== -1) {
-        users[idx].password = secNewPassword;
-        users[idx].isTemporary = false;
-        localStorage.setItem('sge_users_db', JSON.stringify(users));
-        setSecStatus({ type: 'success', msg: 'Senha alterada com sucesso.' });
-        setSecNewPassword('');
-        setSecConfirmPassword('');
+    if (!usersData) return;
+    
+    const users: UserProfile[] = JSON.parse(usersData);
+    const idx = users.findIndex(u => u.email === userEmail);
+    if (idx === -1) return;
+
+    // Password validation if provided
+    if (secNewPassword || secConfirmPassword) {
+      if (secNewPassword !== secConfirmPassword) {
+        setSecStatus({ type: 'error', msg: 'Senhas não coincidem.' });
+        return;
       }
+      if (secNewPassword.length < 6) {
+        setSecStatus({ type: 'error', msg: 'A nova senha deve ter pelo menos 6 caracteres.' });
+        return;
+      }
+      users[idx].password = secNewPassword;
+      users[idx].isTemporary = false;
     }
+
+    // Update Profile Fields
+    users[idx].fullName = secFullName;
+    users[idx].lotacao = secLotacao;
+    users[idx].setor = secSetor;
+
+    localStorage.setItem('sge_users_db', JSON.stringify(users));
+    setSecStatus({ type: 'success', msg: 'Informações atualizadas com sucesso.' });
+    setSecNewPassword('');
+    setSecConfirmPassword('');
   };
 
   const handleShowQr = async (reg: Registro) => {
-    const text = `SGE PPPG - ${reg.tipo.toUpperCase()}\nPRESO: ${reg.nomePreso}\nPRONT: ${reg.prontuario}\nDESTINO: ${reg.destino}\nDATA: ${new Date(reg.dataHora).toLocaleString('pt-BR')}\nEQUIPE: ${reg.equipe}\nPOLICIAIS: ${reg.policiais}\nRISCO: ${reg.risco}`;
+    const text = `SGE PPPG - ${reg.tipo.toUpperCase()}\nPRESO: ${reg.nomePreso}\nPRONT: ${reg.prontuario}\nDESTINO: ${reg.destino}\nDATA: ${new Date(reg.dataHora).toLocaleString('pt-BR')}\nALTA: ${reg.dataAltaMedica ? new Date(reg.dataAltaMedica).toLocaleDateString() : 'N/A'}\nEQUIPE: ${reg.equipe}\nPOLICIAIS: ${reg.policiais}\nRISCO: ${reg.risco}`;
     try {
       const url = await QRCode.toDataURL(text, { width: 600, margin: 2 });
       setQrDataUrl(url);
@@ -487,8 +533,8 @@ const App = () => {
     setIsExporting(true);
     setLoadingMessage('Exportando dados...');
     await new Promise(r => setTimeout(r, 1000));
-    const headers = ['Tipo', 'Preso', 'Prontuario', 'Destino', 'Data', 'Risco', 'Status', 'Equipe', 'Policiais'];
-    const rows = registros.map(r => [r.tipo, r.nomePreso, r.prontuario, r.destino, r.dataHora, r.risco, r.status, r.equipe, r.policiais]);
+    const headers = ['Tipo', 'Preso', 'Prontuario', 'Destino', 'Data', 'Alta Medica', 'Risco', 'Status', 'Equipe', 'Policiais'];
+    const rows = registros.map(r => [r.tipo, r.nomePreso, r.prontuario, r.destino, r.dataHora, r.dataAltaMedica || 'N/A', r.risco, r.status, r.equipe, r.policiais]);
     const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -535,40 +581,40 @@ const App = () => {
       {(isAiLoading || isExporting) && <LoadingOverlay message={loadingMessage} />}
       
       <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-20">
-        <div className="p-8 border-b border-slate-800 bg-slate-950/50">
-          <h1 className="text-2xl font-black tracking-tighter flex items-center gap-2 italic uppercase">
+        <div className="p-8 border-b border-slate-800 bg-slate-950/50 text-center">
+          <h1 className="text-2xl font-black tracking-tighter flex items-center justify-center gap-2 italic uppercase">
             <ShieldAlert className="text-blue-500" size={32} /> SGE <span className="text-blue-500">PPPG</span>
           </h1>
         </div>
         <nav className="flex-1 p-4 space-y-1">
-          <button onClick={() => setActiveTab('painel')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'painel' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+          <button onClick={() => setActiveTab('painel')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'painel' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:bg-slate-800'}`}>
             <LayoutDashboard size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Painel</span>
           </button>
-          <button onClick={() => setActiveTab('escoltas')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'escoltas' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+          <button onClick={() => setActiveTab('escoltas')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'escoltas' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Calendar size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Escoltas</span>
           </button>
-          <button onClick={() => setActiveTab('internamentos')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'internamentos' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+          <button onClick={() => setActiveTab('internamentos')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'internamentos' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Ambulance size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Internamentos</span>
           </button>
-          <button onClick={() => setActiveTab('ocorrencias')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'ocorrencias' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+          <button onClick={() => setActiveTab('ocorrencias')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'ocorrencias' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:bg-slate-800'}`}>
             <AlertTriangle size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Ocorrências</span>
           </button>
-          <button onClick={() => setActiveTab('relatorios')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'relatorios' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+          <button onClick={() => setActiveTab('relatorios')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'relatorios' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:bg-slate-800'}`}>
             <FileText size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Relatórios</span>
           </button>
           <div className="pt-8">
-            <button onClick={() => setActiveTab('novo')} className="w-full flex items-center justify-center gap-3 px-4 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 font-black text-xs uppercase tracking-widest shadow-xl">
+            <button onClick={() => setActiveTab('novo')} className="w-full flex items-center justify-center gap-3 px-4 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 font-black text-xs uppercase tracking-widest shadow-xl transition-all">
               <PlusCircle size={20} /> Nova Operação
             </button>
           </div>
         </nav>
         <div className="p-4 border-t border-slate-800 flex flex-col gap-2">
-          <div className="p-3 bg-slate-950/30 rounded-2xl">
-            <p className="text-[9px] font-black text-slate-500 uppercase flex items-center gap-2">
-              <User size={10} /> {userEmail.split('@')[0]}
+          <div className="p-3 bg-slate-950/30 rounded-2xl text-center">
+            <p className="text-[10px] font-black text-blue-400 uppercase truncate">
+              {secFullName || userEmail.split('@')[0]}
             </p>
           </div>
-          <button onClick={() => setActiveTab('seguranca')} className={`w-full flex items-center gap-3 px-4 py-2 rounded-xl transition-all ${activeTab === 'seguranca' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+          <button onClick={() => setActiveTab('seguranca')} className={`w-full flex items-center gap-3 px-4 py-2 rounded-xl transition-all ${activeTab === 'seguranca' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Settings size={14} /> <span className="text-[10px] font-black uppercase">Segurança</span>
           </button>
           <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-2 text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all">
@@ -583,66 +629,72 @@ const App = () => {
           <div className="flex items-center gap-4">
             <div className="relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input type="text" placeholder="Pesquisar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border rounded-xl text-sm" />
+              <input type="text" placeholder="Pesquisar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20" />
             </div>
-            <button onClick={exportToCSV} className="p-2.5 bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200"><Download size={20} /></button>
+            <button onClick={exportToCSV} className="p-2.5 bg-slate-100 rounded-xl text-slate-600 hover:bg-slate-200 transition-all"><Download size={20} /></button>
           </div>
         </header>
 
-        <div className="p-10">
+        <div className="p-10 pb-20">
           {activeTab === 'painel' && (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
               <div className="bg-white p-6 rounded-3xl shadow-sm border">
-                <p className="text-[10px] font-black uppercase text-slate-500">Escoltas Totais</p>
+                <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Escoltas Totais</p>
                 <p className="text-4xl font-black mt-1">{registros.filter(r => r.tipo === 'Escolta Operacional').length}</p>
               </div>
               <div className="bg-white p-6 rounded-3xl shadow-sm border">
-                <p className="text-[10px] font-black uppercase text-slate-500">Internamentos</p>
+                <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Internamentos</p>
                 <p className="text-4xl font-black mt-1">{registros.filter(r => r.tipo === 'Internamento').length}</p>
               </div>
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-rose-100">
-                <p className="text-[10px] font-black uppercase text-rose-500">Alto Risco</p>
+                <p className="text-[10px] font-black uppercase text-rose-500 tracking-widest">Alto Risco</p>
                 <p className="text-4xl font-black mt-1 text-rose-600">{registros.filter(r => r.risco === 'Alto').length}</p>
               </div>
               <div className="bg-blue-600 p-6 rounded-3xl shadow-lg text-white">
-                <p className="text-[10px] font-black uppercase text-blue-200">Pendentes</p>
+                <p className="text-[10px] font-black uppercase text-blue-200 tracking-widest">Pendentes</p>
                 <p className="text-4xl font-black mt-1">{registros.filter(r => r.status === 'Pendente').length}</p>
               </div>
             </div>
           )}
 
           {(activeTab === 'escoltas' || activeTab === 'internamentos') && (
-            <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-500">
               <table className="w-full">
                 <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase">
                   <tr>
                     <th className="px-8 py-4 text-left">Preso</th>
                     <th className="px-8 py-4 text-left">Guarnição</th>
+                    {activeTab === 'internamentos' && <th className="px-8 py-4 text-left">Alta Médica</th>}
                     <th className="px-8 py-4 text-left">Status</th>
                     <th className="px-8 py-4 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y text-sm">
                   {filteredBySearch.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).map(reg => (
-                    <tr key={reg.id} className="hover:bg-slate-50">
+                    <tr key={reg.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-8 py-5">
                         <p className="font-bold text-slate-900">{reg.nomePreso}</p>
                         <p className="text-[10px] text-slate-400">PRONT: {reg.prontuario} • {reg.destino}</p>
                       </td>
                       <td className="px-8 py-5">
-                        <p className="text-[10px] font-black text-blue-600">{reg.equipe}</p>
-                        <p className="text-[10px] text-slate-500">{reg.policiais}</p>
+                        <p className="text-[10px] font-black text-blue-600 uppercase">{reg.equipe}</p>
+                        <p className="text-[10px] text-slate-500 truncate max-w-[200px]">{reg.policiais}</p>
                       </td>
+                      {activeTab === 'internamentos' && (
+                        <td className="px-8 py-5 font-bold text-blue-600">
+                          {reg.dataAltaMedica ? new Date(reg.dataAltaMedica).toLocaleDateString('pt-BR') : 'Aguardando'}
+                        </td>
+                      )}
                       <td className="px-8 py-5"><StatusBadge status={reg.status} /></td>
                       <td className="px-8 py-5 text-right flex justify-end items-center gap-2">
-                        <button onClick={() => handleShowQr(reg)} className="p-2 text-slate-300 hover:text-blue-500"><QrCode size={18} /></button>
+                        <button onClick={() => handleShowQr(reg)} className="p-2 text-slate-300 hover:text-blue-500 transition-colors" title="Gerar QR Code"><QrCode size={18} /></button>
                         {canManageRecord(reg) && (
                           <>
-                            <button onClick={() => setIsEditing(reg)} className="p-2 text-slate-300 hover:text-amber-500"><Edit3 size={18} /></button>
-                            <button onClick={() => handleDeleteRegistro(reg.id)} className="p-2 text-slate-300 hover:text-rose-500"><Trash2 size={18} /></button>
+                            <button onClick={() => setIsEditing(reg)} className="p-2 text-slate-300 hover:text-amber-500 transition-colors" title="Editar Registro"><Edit3 size={18} /></button>
+                            <button onClick={() => handleDeleteRegistro(reg.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors" title="Excluir Registro"><Trash2 size={18} /></button>
                           </>
                         )}
-                        <select value={reg.status} onChange={e => updateStatus(reg.id, e.target.value as Status)} className="text-[10px] font-black p-1 border rounded-lg bg-slate-50 outline-none">
+                        <select value={reg.status} onChange={e => updateStatus(reg.id, e.target.value as Status)} className="text-[10px] font-black p-1 border rounded-lg bg-slate-50 outline-none hover:border-blue-300 transition-all cursor-pointer">
                           <option value="Pendente">Pendente</option>
                           <option value="Em Andamento">Em Trânsito</option>
                           <option value="Concluído">Concluído</option>
@@ -656,53 +708,68 @@ const App = () => {
           )}
 
           {activeTab === 'novo' && (
-            <div className="max-w-4xl mx-auto bg-white rounded-[48px] p-12 border shadow-2xl">
-              <h3 className="text-3xl font-black mb-8 italic uppercase">Novo Lançamento</h3>
+            <div className="max-w-4xl mx-auto bg-white rounded-[48px] p-12 border shadow-2xl animate-in zoom-in duration-500">
+              <h3 className="text-3xl font-black mb-8 italic uppercase text-slate-900">Novo Lançamento</h3>
               <form onSubmit={handleAddRegistro} className="space-y-8">
                 <div className="grid grid-cols-2 gap-8">
                   <div className="col-span-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2">Modalidade</label>
-                    <select name="tipo" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none">
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Modalidade</label>
+                    <select 
+                      name="tipo" 
+                      value={newModality}
+                      onChange={(e) => setNewModality(e.target.value as TipoRegistro)}
+                      className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
                       <option value="Escolta Operacional">Escolta Operacional</option>
                       <option value="Internamento">Internamento</option>
                       <option value="Operação Externa">Operação Externa</option>
                     </select>
                   </div>
                   <div className="col-span-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2">Risco</label>
-                    <select name="risco" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none">
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Risco</label>
+                    <select name="risco" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none focus:ring-2 focus:ring-blue-500/20">
                       <option value="Baixo">Baixo</option>
                       <option value="Médio">Médio</option>
                       <option value="Alto">Alto</option>
                     </select>
                   </div>
                   <div className="col-span-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2">Nome do Preso</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Nome do Preso</label>
                     <input name="nomePreso" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20 transition-all" />
                   </div>
                   <div className="col-span-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2">Prontuário</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Prontuário</label>
                     <input name="prontuario" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20 transition-all" />
                   </div>
                   <div className="col-span-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2">Destino</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Destino</label>
                     <input name="destino" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20 transition-all" />
                   </div>
                   <div className="col-span-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2">Data e Hora</label>
-                    <input type="datetime-local" name="dataHora" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Data e Hora do Início</label>
+                    <input type="datetime-local" name="dataHora" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
                   </div>
+                  
+                  {newModality === 'Internamento' && (
+                    <div className="col-span-1 animate-in slide-in-from-top duration-300">
+                      <label className="text-[10px] font-black uppercase text-blue-600 block mb-2 flex items-center gap-2 tracking-widest">
+                        <Stethoscope size={12} /> Data da Alta Médica
+                      </label>
+                      <input type="date" name="dataAltaMedica" className="w-full p-4 bg-blue-50 border border-blue-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
+                    </div>
+                  )}
+
                   <div className="col-span-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2">Equipe (VTR/Base)</label>
-                    <input name="equipe" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Equipe (VTR/Base)</label>
+                    <input name="equipe" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
                   </div>
                   <div className="col-span-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2">Nomes dos Policiais</label>
-                    <input name="policiais" placeholder="Ex: SGT Silva, SD Souza..." className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Nomes dos Policiais</label>
+                    <input name="policiais" placeholder="Ex: SGT Silva, SD Souza..." className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
                   </div>
                   <div className="col-span-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2">Observações</label>
-                    <textarea name="observacoes" className="w-full p-4 bg-slate-50 border rounded-2xl font-medium outline-none" rows={3} />
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Observações</label>
+                    <textarea name="observacoes" className="w-full p-4 bg-slate-50 border rounded-2xl font-medium outline-none focus:ring-2 focus:ring-blue-500/20" rows={3} />
                   </div>
                 </div>
                 <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all">Cadastrar Operação</button>
@@ -711,26 +778,33 @@ const App = () => {
           )}
 
           {activeTab === 'ocorrencias' && (
-            <div className="max-w-4xl mx-auto space-y-10">
+            <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in duration-500">
               <div className="bg-white p-10 rounded-[40px] border shadow-sm">
-                <h3 className="text-xl font-black mb-6 uppercase">Novo Comunicado</h3>
+                <h3 className="text-xl font-black mb-6 uppercase tracking-widest text-slate-900">Novo Comunicado</h3>
                 <form onSubmit={handleAddOcorrencia} className="space-y-6">
-                  <input name="titulo" required placeholder="Título do Evento" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                  <textarea name="descricao" required placeholder="Relato detalhado..." className="w-full p-4 bg-slate-50 border rounded-2xl font-medium outline-none" rows={4} />
-                  <button type="submit" className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs">Publicar</button>
+                  <input name="titulo" required placeholder="Título do Evento" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
+                  <textarea name="descricao" required placeholder="Relato detalhado..." className="w-full p-4 bg-slate-50 border rounded-2xl font-medium outline-none focus:ring-2 focus:ring-blue-500/20" rows={4} />
+                  <button type="submit" className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-slate-800 transition-all">Publicar</button>
                 </form>
               </div>
               <div className="space-y-6">
-                {ocorrencias.map(oc => (
-                  <div key={oc.id} className="bg-white p-8 rounded-[40px] border shadow-sm flex gap-6">
+                {ocorrencias.length === 0 ? (
+                  <div className="text-center p-20 bg-slate-100 rounded-[40px] border-2 border-dashed border-slate-300">
+                     <AlertTriangle className="mx-auto text-slate-400 mb-4" size={48} />
+                     <p className="text-slate-500 font-black uppercase text-xs tracking-widest">Nenhuma ocorrência registrada no mural.</p>
+                  </div>
+                ) : ocorrencias.map(oc => (
+                  <div key={oc.id} className="bg-white p-8 rounded-[40px] border shadow-sm flex gap-6 hover:shadow-md transition-all">
                     <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center font-black text-blue-600 shrink-0">{oc.autor[0]}</div>
                     <div className="flex-1">
                       <div className="flex justify-between items-start">
-                        <h4 className="font-black text-lg">{oc.titulo}</h4>
-                        <span className="text-[9px] font-black text-slate-400 uppercase">{new Date(oc.dataHora).toLocaleString()}</span>
+                        <h4 className="font-black text-lg text-slate-900">{oc.titulo}</h4>
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{new Date(oc.dataHora).toLocaleString()}</span>
                       </div>
-                      <p className="text-sm text-slate-500 mt-2">{oc.descricao}</p>
-                      <p className="text-[9px] font-black text-blue-500 uppercase mt-4">AUTOR: {oc.autor} • LOTAÇÃO: {oc.lotacao}</p>
+                      <p className="text-sm text-slate-500 mt-2 leading-relaxed">{oc.descricao}</p>
+                      <p className="text-[9px] font-black text-blue-500 uppercase mt-4 tracking-widest flex items-center gap-2">
+                        <User size={10} /> AUTOR: {oc.autor} • <Building2 size={10} /> LOTAÇÃO: {oc.lotacao}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -739,59 +813,130 @@ const App = () => {
           )}
 
           {activeTab === 'relatorios' && (
-            <div className="max-w-4xl mx-auto space-y-8">
-              <div className="bg-slate-900 p-12 rounded-[48px] text-white">
+            <div className="max-w-4xl mx-auto space-y-8 animate-in slide-in-from-bottom duration-500">
+              <div className="bg-slate-900 p-12 rounded-[48px] text-white shadow-2xl">
                 <h3 className="text-3xl font-black mb-6 italic uppercase">Relatório Estratégico IA</h3>
-                <input value={manualSignature} onChange={e => setManualSignature(e.target.value)} placeholder="Assinatura Funcional" className="w-full p-4 bg-slate-800 rounded-2xl mb-6 text-white outline-none" />
-                <button onClick={generateReport} disabled={isAiLoading} className="w-full py-5 bg-blue-600 rounded-3xl font-black uppercase shadow-lg shadow-blue-500/20">{isAiLoading ? 'Processando...' : 'Gerar com Gemini AI'}</button>
+                <input 
+                  value={manualSignature} 
+                  onChange={e => setManualSignature(e.target.value)} 
+                  placeholder="Nome do Policial para Assinatura" 
+                  className="w-full p-4 bg-slate-800 rounded-2xl mb-6 text-white outline-none focus:ring-2 focus:ring-blue-500/40" 
+                />
+                <button onClick={generateReport} disabled={isAiLoading} className="w-full py-5 bg-blue-600 rounded-3xl font-black uppercase shadow-lg shadow-blue-500/20 hover:bg-blue-500 transition-all flex items-center justify-center gap-3">
+                  {isAiLoading ? <Loader2 className="animate-spin" size={20} /> : <Bot size={20} />}
+                  {isAiLoading ? 'Processando...' : 'Gerar com Gemini AI'}
+                </button>
               </div>
               {aiReport && (
                 <div className="bg-white p-12 rounded-[48px] border shadow-xl animate-in fade-in zoom-in duration-500">
-                  <div className="whitespace-pre-wrap text-sm leading-relaxed font-medium">{aiReport}</div>
+                  <div className="whitespace-pre-wrap text-sm leading-relaxed font-medium text-slate-700">{aiReport}</div>
                 </div>
               )}
             </div>
           )}
 
           {activeTab === 'seguranca' && (
-            <div className="max-w-xl mx-auto bg-white rounded-[40px] p-10 border shadow-sm">
-              <div className="flex items-center gap-4 mb-8">
-                <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
-                  <ShieldCheck size={24} />
+            <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in zoom-in duration-500">
+              {/* Profile Details (Cadastro Profissional) */}
+              <div className="bg-white rounded-[40px] p-10 border shadow-sm">
+                <div className="flex items-center gap-4 mb-8">
+                  <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl shadow-inner">
+                    <User size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black uppercase tracking-tight">Perfil Profissional</h3>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Identificação no Sistema</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-xl font-black uppercase">Segurança da Conta</h3>
-                  <p className="text-[10px] font-black text-slate-400 uppercase">Alterar Senha de Acesso</p>
-                </div>
-              </div>
-              
-              {secStatus && (
-                <div className={`mb-6 p-4 rounded-2xl text-xs font-bold ${secStatus.type === 'success' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                  {secStatus.msg}
-                </div>
-              )}
 
-              <form onSubmit={handleUpdateSecurity} className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase block ml-1">Nova Senha</label>
-                  <input 
-                    type="password" value={secNewPassword} onChange={e => setSecNewPassword(e.target.value)}
-                    placeholder="Mínimo 6 caracteres"
-                    className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase block ml-1">Confirmar Nova Senha</label>
-                  <input 
-                    type="password" value={secConfirmPassword} onChange={e => setSecConfirmPassword(e.target.value)}
-                    placeholder="Repita a senha"
-                    className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </div>
-                <button type="submit" className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl">Atualizar Senha</button>
-              </form>
+                <form onSubmit={handleUpdateSecurity} className="space-y-6">
+                   <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase block ml-1 tracking-widest">Nome Completo</label>
+                    <div className="relative">
+                      <IdCard className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                      <input 
+                        type="text" value={secFullName} onChange={e => setSecFullName(e.target.value)}
+                        placeholder="Ex: Fulano de Souza"
+                        className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase block ml-1 tracking-widest">Lotação (Unidade)</label>
+                      <div className="relative">
+                        <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                        <input 
+                          type="text" value={secLotacao} onChange={e => setSecLotacao(e.target.value)}
+                          placeholder="Ex: PPPG"
+                          className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase block ml-1 tracking-widest">Setor</label>
+                      <div className="relative">
+                        <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                        <input 
+                          type="text" value={secSetor} onChange={e => setSecSetor(e.target.value)}
+                          placeholder="Ex: Escolta / GRI"
+                          className="w-full pl-12 pr-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <hr className="border-slate-100 my-8" />
+
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl shadow-inner">
+                      <Lock size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black uppercase tracking-tight">Alterar Senha</h3>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Deixe em branco se não desejar alterar</p>
+                    </div>
+                  </div>
+
+                  {secStatus && (
+                    <div className={`p-4 rounded-2xl text-xs font-bold flex items-center gap-3 animate-in fade-in ${secStatus.type === 'success' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                      {secStatus.type === 'success' ? <CheckCircle size={16} /> : <Zap size={16} />}
+                      {secStatus.msg}
+                    </div>
+                  )}
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase block ml-1 tracking-widest">Nova Senha</label>
+                      <input 
+                        type="password" value={secNewPassword} onChange={e => setSecNewPassword(e.target.value)}
+                        placeholder="Mínimo 6 caracteres"
+                        className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase block ml-1 tracking-widest">Confirmar Nova Senha</label>
+                      <input 
+                        type="password" value={secConfirmPassword} onChange={e => setSecConfirmPassword(e.target.value)}
+                        placeholder="Repita a senha"
+                        className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+                  </div>
+
+                  <button type="submit" className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase text-xs tracking-widest shadow-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-3">
+                    <ShieldCheck size={18} />
+                    Salvar Dados e Senha
+                  </button>
+                </form>
+              </div>
             </div>
           )}
+        </div>
+
+        {/* Rodapé Interno */}
+        <div className="fixed bottom-0 left-64 right-0 p-4 bg-white/60 backdrop-blur-md border-t text-center text-slate-400 text-[10px] font-black uppercase tracking-widest italic z-10 no-print">
+          Uso Restrito - SGE
         </div>
       </main>
 
@@ -799,20 +944,47 @@ const App = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-xl">
           <div className="bg-white rounded-[48px] w-full max-w-2xl overflow-hidden shadow-2xl animate-in zoom-in duration-300">
             <div className="p-8 flex justify-between items-center bg-slate-50 border-b">
-              <h3 className="text-xl font-black uppercase italic">Editar Lançamento</h3>
+              <h3 className="text-xl font-black uppercase italic text-slate-900">Editar Lançamento</h3>
               <button onClick={() => setIsEditing(null)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={24} /></button>
             </div>
-            <form onSubmit={handleEditRegistro} className="p-10 space-y-6">
+            <form onSubmit={handleEditRegistro} className="p-10 space-y-6 overflow-y-auto max-h-[80vh]">
               <div className="grid grid-cols-2 gap-6">
-                <input name="nomePreso" defaultValue={isEditing.nomePreso} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                <input name="prontuario" defaultValue={isEditing.prontuario} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                <input name="destino" defaultValue={isEditing.destino} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold col-span-2 outline-none" />
-                <input type="datetime-local" name="dataHora" defaultValue={isEditing.dataHora.slice(0, 16)} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                <input name="equipe" defaultValue={isEditing.equipe} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                <input name="policiais" defaultValue={isEditing.policiais} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold col-span-2 outline-none" />
-                <textarea name="observacoes" defaultValue={isEditing.observacoes} className="w-full p-4 bg-slate-50 border rounded-2xl font-medium col-span-2 outline-none" rows={3} />
+                <div className="col-span-1">
+                  <label className="text-[9px] font-black uppercase text-slate-400 mb-1 block tracking-widest">Modalidade</label>
+                  <select name="tipo" defaultValue={isEditing.tipo} className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none focus:ring-2 focus:ring-blue-500/20">
+                    <option value="Escolta Operacional">Escolta Operacional</option>
+                    <option value="Internamento">Internamento</option>
+                    <option value="Operação Externa">Operação Externa</option>
+                  </select>
+                </div>
+                <div className="col-span-1">
+                  <label className="text-[9px] font-black uppercase text-slate-400 mb-1 block tracking-widest">Nível de Risco</label>
+                  <select name="risco" defaultValue={isEditing.risco} className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none focus:ring-2 focus:ring-blue-500/20">
+                    <option value="Baixo">Baixo</option>
+                    <option value="Médio">Médio</option>
+                    <option value="Alto">Alto</option>
+                  </select>
+                </div>
+                <input name="nomePreso" defaultValue={isEditing.nomePreso} placeholder="Nome do Preso" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
+                <input name="prontuario" defaultValue={isEditing.prontuario} placeholder="Prontuário" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
+                <input name="destino" defaultValue={isEditing.destino} placeholder="Destino" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold col-span-2 outline-none focus:ring-2 focus:ring-blue-500/20" />
+                <div className="col-span-1">
+                   <label className="text-[9px] font-black uppercase text-slate-400 mb-1 block tracking-widest">Início da Operação</label>
+                   <input type="datetime-local" name="dataHora" defaultValue={isEditing.dataHora.slice(0, 16)} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
+                </div>
+
+                {isEditing.tipo === 'Internamento' && (
+                  <div className="col-span-1">
+                    <label className="text-[9px] font-black uppercase text-blue-600 mb-1 block tracking-widest">Data da Alta Médica</label>
+                    <input type="date" name="dataAltaMedica" defaultValue={isEditing.dataAltaMedica} className="w-full p-4 bg-blue-50 border border-blue-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
+                  </div>
+                )}
+
+                <input name="equipe" defaultValue={isEditing.equipe} placeholder="Equipe/VTR" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
+                <input name="policiais" defaultValue={isEditing.policiais} placeholder="Policiais" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold col-span-2 outline-none focus:ring-2 focus:ring-blue-500/20" />
+                <textarea name="observacoes" defaultValue={isEditing.observacoes} placeholder="Observações Gerais" className="w-full p-4 bg-slate-50 border rounded-2xl font-medium col-span-2 outline-none focus:ring-2 focus:ring-blue-500/20" rows={3} />
               </div>
-              <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl">Salvar Alterações</button>
+              <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all">Salvar Alterações</button>
             </form>
           </div>
         </div>
@@ -822,19 +994,22 @@ const App = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-xl animate-in fade-in duration-300">
           <div className="bg-white rounded-[48px] w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in duration-300">
             <div className="p-8 flex justify-between items-center bg-slate-50 border-b">
-              <h3 className="text-xl font-black uppercase italic">Guia Operacional QR</h3>
+              <h3 className="text-xl font-black uppercase italic text-slate-900">Guia Operacional QR</h3>
               <button onClick={() => setQrModalOpen(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={24} /></button>
             </div>
             <div className="p-12 flex flex-col items-center">
-              <img src={qrDataUrl || ''} alt="QR" className="w-64 h-64 border-8 border-slate-50 rounded-[48px] mb-8 shadow-sm" />
-              <p className="text-2xl font-black uppercase italic text-slate-900">{selectedReg.nomePreso}</p>
-              <p className="text-xs font-black text-slate-500 uppercase mt-2">PRONT: {selectedReg.prontuario}</p>
-              <div className="mt-8 p-6 bg-slate-50 rounded-3xl w-full text-[10px] text-slate-600 font-bold uppercase text-center border space-y-1">
-                <p><span className="text-blue-600">Equipe:</span> {selectedReg.equipe}</p>
-                <p><span className="text-blue-600">Policiais:</span> {selectedReg.policiais}</p>
+              <div className="bg-white p-4 rounded-[48px] shadow-sm mb-8">
+                <img src={qrDataUrl || ''} alt="QR" className="w-64 h-64 border-8 border-slate-50 rounded-[40px]" />
               </div>
-              <button onClick={() => window.print()} className="mt-10 w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase flex items-center justify-center gap-3 no-print hover:bg-slate-800 transition-all">
-                <Printer size={18} /> Imprimir Guia
+              <p className="text-2xl font-black uppercase italic text-slate-900 text-center leading-tight">{selectedReg.nomePreso}</p>
+              <p className="text-xs font-black text-slate-500 uppercase mt-2 tracking-widest">PRONT: {selectedReg.prontuario}</p>
+              <div className="mt-8 p-6 bg-slate-50 rounded-3xl w-full text-[10px] text-slate-600 font-bold uppercase text-center border space-y-2 tracking-widest">
+                <p><span className="text-blue-600">Equipe:</span> {selectedReg.equipe}</p>
+                {selectedReg.dataAltaMedica && <p><span className="text-blue-600">Alta Médica:</span> {new Date(selectedReg.dataAltaMedica).toLocaleDateString()}</p>}
+                <p className="border-t pt-2 mt-2"><span className="text-blue-600">Policiais:</span> {selectedReg.policiais}</p>
+              </div>
+              <button onClick={() => window.print()} className="mt-10 w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase flex items-center justify-center gap-3 no-print hover:bg-slate-800 transition-all shadow-xl">
+                <Printer size={20} /> Imprimir Guia
               </button>
             </div>
           </div>
@@ -851,6 +1026,9 @@ const App = () => {
           .bg-slate-900\/90 { background: white !important; }
           .shadow-2xl { shadow: none !important; }
           .rounded-\[48px\] { border-radius: 0 !important; border: 1px solid #ccc !important; }
+          aside, header { display: none !important; }
+          main { overflow: visible !important; height: auto !important; margin: 0 !important; padding: 0 !important; }
+          #root { height: auto !important; }
         }
         input:-webkit-autofill,
         input:-webkit-autofill:hover, 

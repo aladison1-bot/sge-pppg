@@ -35,7 +35,9 @@ import {
   ChevronRight,
   ClipboardCheck,
   Sparkles,
-  BedDouble
+  BedDouble,
+  Activity,
+  FileDown
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import QRCode from 'qrcode';
@@ -217,7 +219,7 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (email: string) => voi
 const App = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userEmail, setUserEmail] = useState('');
-  const [activeTab, setActiveTab] = useState<'painel' | 'escoltas' | 'internamentos' | 'relatorios' | 'novo' | 'seguranca'>('painel');
+  const [activeTab, setActiveTab] = useState<'painel' | 'escoltas' | 'internamentos' | 'operacoes' | 'novo' | 'seguranca'>('painel');
   const [registros, setRegistros] = useState<Registro[]>(() => {
     const saved = localStorage.getItem('sge_data_v1.5');
     return saved ? JSON.parse(saved) : INITIAL_DATA;
@@ -296,6 +298,7 @@ const App = () => {
       observacoes: formData.get('observacoes') as string || '',
       equipe: formData.get('equipe') as string || '',
       policiais: formData.get('policiais') as string || '',
+      dataConclusao: undefined,
       dataAltaMedica: formData.get('dataAltaMedica') as string || undefined,
       createdBy: userEmail,
       createdAt: new Date().toISOString()
@@ -344,8 +347,11 @@ const App = () => {
 
   const filteredBySearchAndDate = useMemo(() => {
     return registros.filter(r => {
-      const matchSearch = r.nomePreso.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          r.prontuario.includes(searchTerm);
+      const lowerSearch = searchTerm.toLowerCase();
+      const matchSearch = r.nomePreso.toLowerCase().includes(lowerSearch) || 
+                          r.prontuario.includes(lowerSearch) ||
+                          r.risco.toLowerCase().includes(lowerSearch) ||
+                          r.status.toLowerCase().includes(lowerSearch);
       const matchDate = r.dataHora.startsWith(viewDate);
       return matchSearch && matchDate;
     });
@@ -354,7 +360,7 @@ const App = () => {
   const generateReport = async () => {
     if (!manualSignature) return alert("Assine o relatório manualmente.");
     setIsAiLoading(true);
-    setLoadingMessage("IA gerando relatório diário...");
+    setLoadingMessage("IA gerando resumo operacional diário...");
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     try {
       const dailyData = filteredBySearchAndDate.map(r => ({
@@ -365,19 +371,60 @@ const App = () => {
         Status: r.status,
         Horario: r.dataHora
       }));
-      const prompt = `Gere um relatório simplificado de atividades penitenciárias para o dia ${viewDate}. 
-      Resuma as seguintes operações: ${JSON.stringify(dailyData)}. 
-      Apresente em formato de tópicos diretos.
-      Assinatura do Policial: ${manualSignature}
-      Email de Registro: ${userEmail}`;
+      const prompt = `Gere um resumo simplificado das operações penitenciárias para o dia ${viewDate}. 
+      Baseie-se nestes dados: ${JSON.stringify(dailyData)}. 
+      Apresente em formato de tópicos diretos e técnicos.
+      Assinatura do Policial Responsável: ${manualSignature}
+      Email do Operador: ${userEmail}`;
       
       const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
       setAiReport(response.text);
     } catch (e) {
-      setAiReport("Erro na geração de relatório.");
+      setAiReport("Erro na geração do resumo de operações.");
     } finally {
       setIsAiLoading(false);
     }
+  };
+
+  const handleDownloadCSV = () => {
+    const dailyData = filteredBySearchAndDate;
+    if (dailyData.length === 0) return alert("Nenhum dado para baixar nesta data.");
+
+    const operatorName = secFullName || userEmail;
+    const dateNow = new Date().toLocaleString('pt-BR');
+    
+    // CSV Header with Operator info
+    let csvContent = `RELATORIO DE ATENDIMENTOS DIARIOS - SGE PPPG\n`;
+    csvContent += `Data de Referencia: ${viewDate}\n`;
+    csvContent += `Download realizado por: ${operatorName}\n`;
+    csvContent += `Data/Hora do Download: ${dateNow}\n\n`;
+    
+    // Columns
+    csvContent += `TIPO;NOME;PRONTUARIO;DESTINO;QUARTO;RISCO;STATUS;DATA_HORA;OBSERVACOES\n`;
+
+    dailyData.forEach(r => {
+      const row = [
+        r.tipo,
+        r.nomePreso,
+        r.prontuario,
+        r.destino,
+        r.quarto || 'N/A',
+        r.risco,
+        r.status,
+        r.dataHora,
+        (r.observacoes || '').replace(/;/g, ',').replace(/\n/g, ' ')
+      ].join(';');
+      csvContent += row + '\n';
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `SGE_PPPG_OPERACAO_${viewDate}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const suggestObservations = async (form: HTMLFormElement) => {
@@ -437,6 +484,12 @@ const App = () => {
     setSecConfirmPassword('');
   };
 
+  // Funções de clique no painel
+  const goToEscoltas = () => { setActiveTab('escoltas'); setSearchTerm(''); };
+  const goToInternamentos = () => { setActiveTab('internamentos'); setSearchTerm(''); };
+  const goToAltoRisco = () => { setActiveTab('escoltas'); setSearchTerm('Alto'); };
+  const goToPendentesHoje = () => { setActiveTab('escoltas'); setViewDate(new Date().toISOString().split('T')[0]); setSearchTerm('Pendente'); };
+
   if (!isAuthenticated) return <AuthSystem onLoginSuccess={handleLoginSuccess} />;
 
   return (
@@ -459,8 +512,8 @@ const App = () => {
           <button onClick={() => setActiveTab('internamentos')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'internamentos' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Ambulance size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Internamentos</span>
           </button>
-          <button onClick={() => setActiveTab('relatorios')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'relatorios' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <FileText size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Relatórios</span>
+          <button onClick={() => setActiveTab('operacoes')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'operacoes' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <Activity size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Operações</span>
           </button>
           <div className="pt-8">
             <button onClick={() => setActiveTab('novo')} className="w-full flex items-center justify-center gap-3 px-4 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 font-black text-xs uppercase tracking-widest shadow-xl transition-all">
@@ -482,7 +535,7 @@ const App = () => {
         <header className="bg-white/80 backdrop-blur-xl border-b border-slate-200 px-10 py-5 sticky top-0 z-10 flex justify-between items-center">
           <div className="flex items-center gap-6">
             <h2 className="text-xl font-black text-slate-900 uppercase italic">{activeTab.toUpperCase()}</h2>
-            {(activeTab === 'escoltas' || activeTab === 'internamentos' || activeTab === 'relatorios') && (
+            {(activeTab === 'escoltas' || activeTab === 'internamentos' || activeTab === 'operacoes') && (
               <input type="date" value={viewDate} onChange={e => setViewDate(e.target.value)} className="p-2 bg-slate-100 border rounded-xl text-xs font-black uppercase outline-none" />
             )}
           </div>
@@ -497,33 +550,50 @@ const App = () => {
         <div className="p-10 pb-20">
           {activeTab === 'painel' && (
             <div className="max-w-md mx-auto space-y-6">
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center">
+              <div 
+                onClick={goToEscoltas}
+                className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all active:scale-[0.98]"
+              >
                 <LayoutDashboard className="text-blue-600 mb-2" size={32} />
                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Escoltas Totais</p>
                 <p className="text-5xl font-black mt-1">{registros.filter(r => r.tipo === 'Escolta Operacional').length}</p>
+                <span className="mt-4 text-[9px] font-black text-blue-500 uppercase tracking-widest flex items-center gap-1">Clique para visualizar <ChevronRight size={10}/></span>
               </div>
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center">
+              <div 
+                onClick={goToInternamentos}
+                className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all active:scale-[0.98]"
+              >
                 <Ambulance className="text-emerald-600 mb-2" size={32} />
                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Internamentos</p>
                 <p className="text-5xl font-black mt-1">{registros.filter(r => r.tipo === 'Internamento').length}</p>
+                <span className="mt-4 text-[9px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-1">Clique para visualizar <ChevronRight size={10}/></span>
               </div>
-              <div className="bg-white p-8 rounded-3xl shadow-sm border border-rose-200 flex flex-col items-center">
+              <div 
+                onClick={goToAltoRisco}
+                className="bg-white p-8 rounded-3xl shadow-sm border border-rose-200 flex flex-col items-center cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all active:scale-[0.98]"
+              >
                 <ShieldAlert className="text-rose-600 mb-2" size={32} />
                 <p className="text-[10px] font-black uppercase text-rose-500 tracking-widest">Alto Risco</p>
                 <p className="text-5xl font-black mt-1 text-rose-600">{registros.filter(r => r.risco === 'Alto').length}</p>
+                <span className="mt-4 text-[9px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-1">Clique para visualizar <ChevronRight size={10}/></span>
               </div>
-              <div className="bg-blue-600 p-8 rounded-3xl shadow-xl text-white flex flex-col items-center">
+              <div 
+                onClick={goToPendentesHoje}
+                className="bg-blue-600 p-8 rounded-3xl shadow-xl text-white flex flex-col items-center cursor-pointer hover:scale-[1.02] hover:shadow-blue-500/20 transition-all active:scale-[0.98]"
+              >
                 <ClipboardCheck className="text-blue-200 mb-2" size={32} />
                 <p className="text-[10px] font-black uppercase text-blue-200 tracking-widest">Pendentes Hoje</p>
                 <p className="text-5xl font-black mt-1">{registros.filter(r => r.status === 'Pendente' && r.dataHora.startsWith(new Date().toISOString().split('T')[0])).length}</p>
+                <span className="mt-4 text-[9px] font-black text-blue-200 uppercase tracking-widest flex items-center gap-1">Clique para visualizar <ChevronRight size={10}/></span>
               </div>
             </div>
           )}
 
           {(activeTab === 'escoltas' || activeTab === 'internamentos') && (
             <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-500">
-              <div className="bg-slate-50/50 px-8 py-3 border-b text-[10px] font-black uppercase text-slate-400 tracking-widest">
-                DIA: <span className="text-blue-600">{new Date(viewDate + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+              <div className="bg-slate-50/50 px-8 py-3 border-b text-[10px] font-black uppercase text-slate-400 tracking-widest flex justify-between items-center">
+                <span>DIA: <span className="text-blue-600">{new Date(viewDate + 'T00:00:00').toLocaleDateString('pt-BR')}</span></span>
+                {searchTerm && <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[9px]">Filtro ativo: "{searchTerm}"</span>}
               </div>
               <table className="w-full">
                 <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase">
@@ -536,11 +606,14 @@ const App = () => {
                 </thead>
                 <tbody className="divide-y text-sm">
                   {filteredBySearchAndDate.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).length === 0 ? (
-                    <tr><td colSpan={activeTab === 'internamentos' ? 4 : 3} className="py-20 text-center text-slate-400 font-black uppercase tracking-widest opacity-50">Sem registros para esta data.</td></tr>
+                    <tr><td colSpan={activeTab === 'internamentos' ? 4 : 3} className="py-20 text-center text-slate-400 font-black uppercase tracking-widest opacity-50">Sem registros para esta data ou filtro aplicado.</td></tr>
                   ) : filteredBySearchAndDate.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).map(reg => (
                     <tr key={reg.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-8 py-5">
-                        <p className="font-bold text-slate-900">{reg.nomePreso}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-slate-900">{reg.nomePreso}</p>
+                          {reg.risco === 'Alto' && <span className="bg-rose-100 text-rose-600 text-[8px] font-black px-1.5 py-0.5 rounded uppercase">Alto Risco</span>}
+                        </div>
                         <p className="text-[10px] text-slate-400 uppercase">PRONT: {reg.prontuario || 'N/A'} • {reg.destino}</p>
                       </td>
                       {activeTab === 'internamentos' && (
@@ -638,24 +711,46 @@ const App = () => {
             </div>
           )}
 
-          {activeTab === 'relatorios' && (
+          {activeTab === 'operacoes' && (
             <div className="max-w-4xl mx-auto space-y-8 animate-in slide-in-from-bottom duration-500">
               <div className="bg-slate-900 p-12 rounded-[40px] text-white shadow-2xl text-center">
                 <Bot className="mx-auto mb-4 text-blue-400" size={48} />
-                <h3 className="text-2xl font-black mb-6 italic uppercase">Relatório Diário IA</h3>
-                <div className="space-y-4 max-w-sm mx-auto">
-                   <input value={manualSignature} onChange={e => setManualSignature(e.target.value)} placeholder="Assinatura Manual (Nome do Operador)" className="w-full p-4 bg-slate-800 rounded-2xl text-white outline-none border border-slate-700" />
-                   <div className="p-3 bg-slate-800/50 rounded-xl text-[10px] font-black uppercase text-slate-400 tracking-widest border border-slate-700/50">
-                     E-mail Automático: {userEmail}
-                   </div>
-                   <button onClick={generateReport} disabled={isAiLoading} className="w-full py-5 bg-blue-600 rounded-3xl font-black uppercase shadow-lg hover:bg-blue-500 transition-all">
-                     {isAiLoading ? 'Processando...' : 'Gerar Relatório Diário'}
-                   </button>
+                <h3 className="text-2xl font-black mb-6 italic uppercase">Gerenciar Operações do Dia</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto mb-8">
+                  <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 text-left flex flex-col justify-between">
+                    <div>
+                      <h4 className="text-sm font-black uppercase text-blue-400 mb-2">Resumo com IA</h4>
+                      <p className="text-[10px] text-slate-400 leading-relaxed mb-4">Gera um relatório técnico consolidado usando Inteligência Artificial baseado nos lançamentos da data selecionada.</p>
+                    </div>
+                    <div className="space-y-4">
+                      <input value={manualSignature} onChange={e => setManualSignature(e.target.value)} placeholder="Assinatura p/ Relatório" className="w-full p-3 bg-slate-900 rounded-xl text-xs outline-none border border-slate-700" />
+                      <button onClick={generateReport} disabled={isAiLoading} className="w-full py-4 bg-blue-600 rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-blue-500 transition-all">
+                        {isAiLoading ? 'Analisando...' : 'Gerar Resumo IA'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 text-left flex flex-col justify-between">
+                    <div>
+                      <h4 className="text-sm font-black uppercase text-emerald-400 mb-2">Exportar Dados</h4>
+                      <p className="text-[10px] text-slate-400 leading-relaxed mb-4">Baixe a planilha completa de atendimentos desta data. O arquivo incluirá a identificação do operador responsável.</p>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="p-3 bg-slate-900 rounded-xl text-[9px] font-black uppercase text-slate-500 border border-slate-700">
+                        Responsável: {secFullName || userEmail}
+                      </div>
+                      <button onClick={handleDownloadCSV} className="w-full py-4 bg-emerald-600 rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-emerald-500 transition-all flex items-center justify-center gap-2">
+                        <FileDown size={16} /> Baixar Atendimentos (CSV)
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
+
               {aiReport && (
                 <div className="bg-white p-12 rounded-[40px] border shadow-xl animate-in zoom-in duration-500 relative">
-                   <button onClick={() => window.print()} className="absolute top-8 right-8 p-3 bg-slate-100 rounded-2xl hover:bg-slate-200 transition-all no-print"><Printer size={20} /></button>
+                   <button onClick={() => window.print()} className="absolute top-8 right-8 p-3 bg-slate-100 rounded-2xl hover:bg-slate-200 transition-all no-print" title="Imprimir Relatório"><Printer size={20} /></button>
                    <div className="whitespace-pre-wrap text-sm leading-relaxed font-medium text-slate-700 print:text-xs">{aiReport}</div>
                 </div>
               )}
@@ -665,25 +760,25 @@ const App = () => {
           {activeTab === 'seguranca' && (
             <div className="max-w-xl mx-auto space-y-8 animate-in zoom-in duration-500">
               <div className="bg-white rounded-[40px] p-10 border shadow-sm">
-                <h3 className="text-xl font-black uppercase mb-8 border-b pb-4">Cadastro do Policial</h3>
+                <h3 className="text-xl font-black uppercase mb-8 border-b pb-4">Configurações de Segurança</h3>
                 <form onSubmit={handleUpdateSecurity} className="space-y-6">
                   <div>
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1 ml-1 tracking-widest">Nome Completo</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1 ml-1 tracking-widest">Nome Funcional</label>
                     <input value={secFullName} onChange={e => setSecFullName(e.target.value)} placeholder="Nome Completo" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="text-[10px] font-black uppercase text-slate-400 block mb-1 ml-1 tracking-widest">Lotação</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 block mb-1 ml-1 tracking-widest">Unidade</label>
                       <input value={secLotacao} onChange={e => setSecLotacao(e.target.value)} placeholder="Ex: PPPG" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                     </div>
                     <div>
-                      <label className="text-[10px] font-black uppercase text-slate-400 block mb-1 ml-1 tracking-widest">Setor</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 block mb-1 ml-1 tracking-widest">Divisão/Setor</label>
                       <input value={secSetor} onChange={e => setSecSetor(e.target.value)} placeholder="Ex: GRI" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                     </div>
                   </div>
                   
                   <div className="pt-4 border-t border-slate-100">
-                    <h4 className="text-xs font-black uppercase text-slate-400 mb-6 tracking-widest flex items-center gap-2"><Lock size={14}/> Alterar Senha de Acesso</h4>
+                    <h4 className="text-xs font-black uppercase text-slate-400 mb-6 tracking-widest flex items-center gap-2"><Lock size={14}/> Gestão de Senha</h4>
                     <div className="space-y-4">
                       <input 
                         type="password" 
@@ -708,7 +803,7 @@ const App = () => {
                     </div>
                   )}
 
-                  <button type="submit" className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all">Atualizar Perfil e Senha</button>
+                  <button type="submit" className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all">Salvar Perfil e Acesso</button>
                 </form>
               </div>
             </div>
@@ -720,7 +815,7 @@ const App = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-xl animate-in zoom-in duration-300">
           <div className="bg-white rounded-[40px] w-full max-w-2xl overflow-hidden shadow-2xl p-10">
             <div className="flex justify-between items-center mb-8 border-b pb-4">
-              <h3 className="text-xl font-black uppercase italic">Editar Atendimento</h3>
+              <h3 className="text-xl font-black uppercase italic">Editar Registro</h3>
               <button onClick={() => setIsEditing(null)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={24} /></button>
             </div>
             <form onSubmit={handleEditRegistro} className="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
@@ -756,7 +851,7 @@ const App = () => {
                 </div>
                 
                 <div className="col-span-1 md:col-span-2">
-                   <textarea name="observacoes" defaultValue={isEditing.observacoes} placeholder="Observações" className="w-full p-4 bg-slate-50 border rounded-2xl font-medium outline-none" rows={3} />
+                   <textarea name="observacoes" defaultValue={isEditing.observacoes} placeholder="Observações Técnicas" className="w-full p-4 bg-slate-50 border rounded-2xl font-medium outline-none" rows={3} />
                 </div>
               </div>
               <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl">Salvar Alterações</button>
@@ -768,15 +863,15 @@ const App = () => {
       {qrModalOpen && selectedReg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-xl animate-in zoom-in duration-300">
           <div className="bg-white rounded-[40px] w-full max-w-lg shadow-2xl p-10 flex flex-col items-center">
-            <h3 className="text-xl font-black uppercase italic mb-8">Ficha Digital (QR)</h3>
+            <h3 className="text-xl font-black uppercase italic mb-8 border-b w-full text-center pb-4">Identificação Digital Operacional</h3>
             <div className="bg-slate-100 p-8 rounded-[40px] mb-8 border-4 border-slate-50 shadow-inner">
                <QrCode size={128} className="text-slate-400" />
             </div>
             <p className="text-2xl font-black uppercase italic text-slate-900 text-center">{selectedReg.nomePreso}</p>
             <p className="text-xs font-black text-slate-500 uppercase mt-2 tracking-widest">PRONT: {selectedReg.prontuario || 'N/A'}</p>
-            {selectedReg.quarto && <p className="text-[10px] font-black text-blue-600 uppercase mt-1">QUARTO: {selectedReg.quarto}</p>}
-            <button onClick={() => window.print()} className="mt-10 w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase flex items-center justify-center gap-3 no-print hover:bg-slate-800 transition-all"><Printer size={20} /> Imprimir Ficha</button>
-            <button onClick={() => setQrModalOpen(false)} className="mt-4 text-[10px] font-black uppercase text-slate-400 tracking-widest hover:text-slate-600">Fechar Guia</button>
+            {selectedReg.quarto && <p className="text-[10px] font-black text-blue-600 uppercase mt-1">QUARTO/LEITO: {selectedReg.quarto}</p>}
+            <button onClick={() => window.print()} className="mt-10 w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase flex items-center justify-center gap-3 no-print hover:bg-slate-800 transition-all shadow-lg"><Printer size={20} /> Imprimir Ficha de Identificação</button>
+            <button onClick={() => setQrModalOpen(false)} className="mt-4 text-[10px] font-black uppercase text-slate-400 tracking-widest hover:text-slate-600">Fechar Janela</button>
           </div>
         </div>
       )}

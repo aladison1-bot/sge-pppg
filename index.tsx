@@ -411,6 +411,7 @@ const App = () => {
                 <th>Destino / Local</th>
                 <th>Risco</th>
                 <th>Status</th>
+                <th>Operador Lançador</th>
                 <th>Data/Hora</th>
                 <th>Observações</th>
               </tr>
@@ -423,6 +424,7 @@ const App = () => {
                   <td>${r.destino}${r.quarto ? `<br/>(Q: ${r.quarto})` : ''}</td>
                   <td class="${r.risco === 'Alto' ? 'risco-alto' : ''}">${r.risco}</td>
                   <td>${r.status}</td>
+                  <td>${r.createdBy}</td>
                   <td>${new Date(r.dataHora).toLocaleString('pt-BR')}</td>
                   <td>${r.observacoes || '-'}</td>
                 </tr>
@@ -431,7 +433,7 @@ const App = () => {
           </table>
 
           <div class="signature-space">
-            <div class="sig-box">Responsável pelo Preenchimento</div>
+            <div class="sig-box">Responsável pela Emissão</div>
             <div class="sig-box">${operatorName}</div>
           </div>
 
@@ -524,10 +526,10 @@ const App = () => {
           <button onClick={() => setActiveTab('painel')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'painel' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <LayoutDashboard size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Painel Gestor</span>
           </button>
-          <button onClick={() => { setActiveTab('escoltas'); setShowAllDates(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'escoltas' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+          <button onClick={() => { setActiveTab('escoltas'); setShowAllDates(false); setSearchTerm(''); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'escoltas' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <CalendarIcon size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Escoltas</span>
           </button>
-          <button onClick={() => { setActiveTab('internamentos'); setShowAllDates(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'internamentos' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+          <button onClick={() => { setActiveTab('internamentos'); setShowAllDates(false); setSearchTerm(''); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'internamentos' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Ambulance size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Internamentos</span>
           </button>
           <button onClick={() => setActiveTab('operacoes')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'operacoes' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
@@ -563,10 +565,10 @@ const App = () => {
                  />
                  {showAllDates && (
                    <button 
-                    onClick={() => setShowAllDates(false)}
+                    onClick={() => { setShowAllDates(false); setSearchTerm(''); }}
                     className="text-[9px] font-black uppercase text-blue-600 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100 hover:bg-blue-100 transition-all"
                    >
-                     Exibindo Geral (Limpar)
+                     Exibindo Geral (Limpar Filtros)
                    </button>
                  )}
               </div>
@@ -634,12 +636,13 @@ const App = () => {
                     <th className="px-8 py-4 text-left">Identificação</th>
                     {activeTab === 'internamentos' && <th className="px-8 py-4 text-left">Localização</th>}
                     <th className="px-8 py-4 text-left">Status Operacional</th>
+                    <th className="px-8 py-4 text-left">Operador</th>
                     <th className="px-8 py-4 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y text-sm">
                   {filteredBySearchAndDate.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).length === 0 ? (
-                    <tr><td colSpan={activeTab === 'internamentos' ? 4 : 3} className="py-20 text-center text-slate-400 font-black uppercase tracking-widest opacity-50">Sem registros para o filtro selecionado.</td></tr>
+                    <tr><td colSpan={activeTab === 'internamentos' ? 5 : 4} className="py-20 text-center text-slate-400 font-black uppercase tracking-widest opacity-50">Sem registros para o filtro selecionado.</td></tr>
                   ) : filteredBySearchAndDate.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).map(reg => (
                     <tr key={reg.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-8 py-5">
@@ -661,6 +664,9 @@ const App = () => {
                           <option value="Concluído">{reg.tipo === 'Internamento' ? 'Alta Médica Concluída' : 'Operação Concluída'}</option>
                           <option value="Cancelado">Cancelado</option>
                         </select>
+                      </td>
+                      <td className="px-8 py-5">
+                         <p className="text-[10px] font-black text-slate-500 uppercase truncate max-w-[120px]" title={reg.createdBy}>{reg.createdBy}</p>
                       </td>
                       <td className="px-8 py-5 text-right flex justify-end gap-3">
                         <button onClick={() => setIsEditing(reg)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-lg" title="Editar"><Edit3 size={18} /></button>
@@ -699,7 +705,7 @@ const App = () => {
                   <input name="prontuario" placeholder="Prontuário" required={newModality !== 'Operação Externa'} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                   
                   <div className={newModality === 'Internamento' ? 'col-span-1' : 'col-span-1 md:col-span-2'}>
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Destino</label>
+                    <label className="text-[10px) font-black uppercase text-slate-400 block mb-2 tracking-widest">Destino</label>
                     <input name="destino" placeholder="Local de Destino" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                   </div>
 
@@ -754,7 +760,7 @@ const App = () => {
                   <div className="bg-slate-800 p-10 rounded-3xl border border-slate-700 text-center flex flex-col items-center gap-6">
                     <div>
                       <h4 className="text-xl font-black uppercase text-rose-400 mb-2">Exportar Atendimentos em PDF</h4>
-                      <p className="text-xs text-slate-400 leading-relaxed">Baixe o documento operacional completo dos atendimentos selecionados. O documento incluirá o cabeçalho oficial e a identificação do operador.</p>
+                      <p className="text-xs text-slate-400 leading-relaxed">Baixe o documento operacional completo dos atendimentos selecionados. O documento incluirá o cabeçalho oficial e a identificação do operador emissor.</p>
                     </div>
                     
                     <div className="w-full space-y-4 pt-4 border-t border-slate-700">
@@ -763,7 +769,7 @@ const App = () => {
                         <span className="text-blue-400">{showAllDates ? 'Geral' : viewDate}</span>
                       </div>
                       <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-500">
-                        <span>Operador Responsável:</span>
+                        <span>Operador Emissor:</span>
                         <span className="text-white">{secFullName || userEmail}</span>
                       </div>
                       <button onClick={handleExportPDF} className="w-full py-5 bg-rose-600 rounded-2xl font-black uppercase text-xs shadow-lg hover:bg-rose-500 transition-all flex items-center justify-center gap-3">

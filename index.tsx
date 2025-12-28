@@ -33,7 +33,9 @@ import {
   Briefcase,
   ChevronLeft,
   ChevronRight,
-  ClipboardCheck
+  ClipboardCheck,
+  Sparkles,
+  BedDouble
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import QRCode from 'qrcode';
@@ -49,6 +51,7 @@ interface Registro {
   nomePreso: string;
   prontuario: string;
   destino: string;
+  quarto?: string;
   dataHora: string;
   risco: Risco;
   status: Status;
@@ -195,10 +198,10 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (email: string) => voi
 
         {view === 'change-password' && (
           <form onSubmit={handleChangePassword} className="space-y-6">
-            <p className="text-[10px] text-blue-600 font-medium">Troca de senha obrigatória no primeiro acesso.</p>
+            <p className="text-[10px] text-blue-600 font-medium text-center">Defina uma nova senha segura para o seu primeiro acesso.</p>
             <input type="password" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Nova Senha" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
             <input type="password" required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirmar Senha" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-            <button type="submit" disabled={loading} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest">Salvar e Acessar</button>
+            <button type="submit" disabled={loading} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">Salvar e Acessar</button>
           </form>
         )}
 
@@ -231,9 +234,17 @@ const App = () => {
   const [isEditing, setIsEditing] = useState<Registro | null>(null);
   const [viewDate, setViewDate] = useState(new Date().toISOString().split('T')[0]);
   const [newModality, setNewModality] = useState<TipoRegistro>('Escolta Operacional');
+  
+  // Security State
   const [secFullName, setSecFullName] = useState('');
   const [secLotacao, setSecLotacao] = useState('');
   const [secSetor, setSecSetor] = useState('');
+  const [secNewPassword, setSecNewPassword] = useState('');
+  const [secConfirmPassword, setSecConfirmPassword] = useState('');
+  const [secStatus, setSecStatus] = useState<{ type: 'success' | 'error', msg: string } | null>(null);
+
+  // Observations AI Generation State
+  const [isGeneratingObs, setIsGeneratingObs] = useState(false);
 
   useEffect(() => {
     const savedAuth = localStorage.getItem('sge_auth_v1');
@@ -278,6 +289,7 @@ const App = () => {
       nomePreso: formData.get('nomePreso') as string,
       prontuario: formData.get('prontuario') as string || '',
       destino: formData.get('destino') as string,
+      quarto: formData.get('quarto') as string || undefined,
       dataHora: formData.get('dataHora') as string,
       risco: formData.get('risco') as Risco,
       status: 'Pendente',
@@ -304,6 +316,7 @@ const App = () => {
       nomePreso: formData.get('nomePreso') as string,
       prontuario: formData.get('prontuario') as string || '',
       destino: formData.get('destino') as string,
+      quarto: formData.get('quarto') as string || undefined,
       dataHora: formData.get('dataHora') as string,
       risco: formData.get('risco') as Risco,
       observacoes: formData.get('observacoes') as string || '',
@@ -348,13 +361,15 @@ const App = () => {
         Preso: r.nomePreso,
         Tipo: r.tipo,
         Destino: r.destino,
+        Quarto: r.quarto || 'N/A',
         Status: r.status,
         Horario: r.dataHora
       }));
       const prompt = `Gere um relatório simplificado de atividades penitenciárias para o dia ${viewDate}. 
       Resuma as seguintes operações: ${JSON.stringify(dailyData)}. 
       Apresente em formato de tópicos diretos.
-      Assinatura: ${manualSignature} (${userEmail})`;
+      Assinatura do Policial: ${manualSignature}
+      Email de Registro: ${userEmail}`;
       
       const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
       setAiReport(response.text);
@@ -363,6 +378,63 @@ const App = () => {
     } finally {
       setIsAiLoading(false);
     }
+  };
+
+  const suggestObservations = async (form: HTMLFormElement) => {
+    const formData = new FormData(form);
+    const nome = formData.get('nomePreso');
+    const destino = formData.get('destino');
+    const tipo = formData.get('tipo');
+    const risco = formData.get('risco');
+
+    if (!nome || !destino) return alert("Preencha nome e destino para sugestão.");
+
+    setIsGeneratingObs(true);
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    try {
+      const prompt = `Gere uma observação técnica operacional curta e formal para um lançamento de ${tipo} do preso ${nome} para o destino ${destino} com risco ${risco}. Seja conciso.`;
+      const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
+      const obsTextarea = form.querySelector('textarea[name="observacoes"]') as HTMLTextAreaElement;
+      if (obsTextarea) obsTextarea.value = response.text || '';
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsGeneratingObs(false);
+    }
+  };
+
+  const handleUpdateSecurity = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSecStatus(null);
+    const usersData = localStorage.getItem('sge_users_db');
+    if (!usersData) return;
+    
+    const users: UserProfile[] = JSON.parse(usersData);
+    const idx = users.findIndex(u => u.email === userEmail);
+    if (idx === -1) return;
+
+    // Password Update Logic
+    if (secNewPassword) {
+      if (secNewPassword !== secConfirmPassword) {
+        setSecStatus({ type: 'error', msg: 'Novas senhas não coincidem.' });
+        return;
+      }
+      if (secNewPassword.length < 6) {
+        setSecStatus({ type: 'error', msg: 'Senha deve ter 6+ caracteres.' });
+        return;
+      }
+      users[idx].password = secNewPassword;
+    }
+
+    // Profile Update Logic
+    users[idx].fullName = secFullName;
+    users[idx].lotacao = secLotacao;
+    users[idx].setor = secSetor;
+
+    localStorage.setItem('sge_users_db', JSON.stringify(users));
+    setSecStatus({ type: 'success', msg: 'Perfil e/ou senha atualizados com sucesso.' });
+    setSecNewPassword('');
+    setSecConfirmPassword('');
   };
 
   if (!isAuthenticated) return <AuthSystem onLoginSuccess={handleLoginSuccess} />;
@@ -397,7 +469,7 @@ const App = () => {
           </div>
         </nav>
         <div className="p-4 border-t border-slate-800 flex flex-col gap-2">
-          <button onClick={() => setActiveTab('seguranca')} className="flex items-center gap-3 px-4 py-2 text-slate-400 hover:bg-slate-800 rounded-xl transition-all">
+          <button onClick={() => setActiveTab('seguranca')} className={`flex items-center gap-3 px-4 py-2 rounded-xl transition-all ${activeTab === 'seguranca' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Settings size={14} /> <span className="text-[10px] font-black uppercase tracking-widest">Segurança</span>
           </button>
           <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-2 text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all">
@@ -422,7 +494,7 @@ const App = () => {
           </div>
         </header>
 
-        <div className="p-10">
+        <div className="p-10 pb-20">
           {activeTab === 'painel' && (
             <div className="max-w-md mx-auto space-y-6">
               <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center">
@@ -457,19 +529,25 @@ const App = () => {
                 <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase">
                   <tr>
                     <th className="px-8 py-4 text-left">Identificação</th>
+                    {activeTab === 'internamentos' && <th className="px-8 py-4 text-left">Localização</th>}
                     <th className="px-8 py-4 text-left">Status Operacional</th>
                     <th className="px-8 py-4 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y text-sm">
                   {filteredBySearchAndDate.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).length === 0 ? (
-                    <tr><td colSpan={3} className="py-20 text-center text-slate-400 font-black uppercase tracking-widest opacity-50">Sem registros para esta data.</td></tr>
+                    <tr><td colSpan={activeTab === 'internamentos' ? 4 : 3} className="py-20 text-center text-slate-400 font-black uppercase tracking-widest opacity-50">Sem registros para esta data.</td></tr>
                   ) : filteredBySearchAndDate.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).map(reg => (
                     <tr key={reg.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-8 py-5">
                         <p className="font-bold text-slate-900">{reg.nomePreso}</p>
                         <p className="text-[10px] text-slate-400 uppercase">PRONT: {reg.prontuario || 'N/A'} • {reg.destino}</p>
                       </td>
+                      {activeTab === 'internamentos' && (
+                        <td className="px-8 py-5">
+                          <p className="text-[10px] font-black text-blue-600 uppercase flex items-center gap-1"><BedDouble size={12}/> {reg.quarto || 'NÃO INFORMADO'}</p>
+                        </td>
+                      )}
                       <td className="px-8 py-5">
                         <select value={reg.status} onChange={e => updateStatus(reg.id, e.target.value as Status)} className="text-[10px] font-black p-2 border rounded-xl bg-white outline-none">
                           <option value="Pendente">Pendente</option>
@@ -479,9 +557,9 @@ const App = () => {
                         </select>
                       </td>
                       <td className="px-8 py-5 text-right flex justify-end gap-3">
-                        <button onClick={() => setIsEditing(reg)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-lg"><Edit3 size={18} /></button>
-                        <button onClick={() => handleDeleteRegistro(reg.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg"><Trash2 size={18} /></button>
-                        <button onClick={() => { setSelectedReg(reg); setQrModalOpen(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><QrCode size={18} /></button>
+                        <button onClick={() => setIsEditing(reg)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-lg" title="Editar"><Edit3 size={18} /></button>
+                        <button onClick={() => handleDeleteRegistro(reg.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg" title="Excluir"><Trash2 size={18} /></button>
+                        <button onClick={() => { setSelectedReg(reg); setQrModalOpen(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg" title="QR Code"><QrCode size={18} /></button>
                       </td>
                     </tr>
                   ))}
@@ -513,10 +591,22 @@ const App = () => {
                   </div>
                   <input name="nomePreso" placeholder="Nome do Preso" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                   <input name="prontuario" placeholder="Prontuário" required={newModality !== 'Operação Externa'} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                  <input name="destino" placeholder="Local de Destino" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold col-span-1 md:col-span-2 outline-none" />
+                  
+                  <div className={newModality === 'Internamento' ? 'col-span-1' : 'col-span-1 md:col-span-2'}>
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Destino</label>
+                    <input name="destino" placeholder="Local de Destino" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                  </div>
+
+                  {newModality === 'Internamento' && (
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-blue-600 block mb-2 tracking-widest flex items-center gap-1"><BedDouble size={12}/> Nº Quarto/Leito</label>
+                      <input name="quarto" placeholder="Ex: Quarto 304, Leito A" className="w-full p-4 bg-blue-50 border border-blue-100 rounded-2xl font-bold outline-none" />
+                    </div>
+                  )}
+
                   <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div>
-                      <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Início</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Início da Operação</label>
                       <input type="datetime-local" name="dataHora" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                     </div>
                     {newModality === 'Internamento' && (
@@ -525,6 +615,22 @@ const App = () => {
                         <input type="date" name="dataAltaMedica" className="w-full p-4 bg-blue-50 border border-blue-100 rounded-2xl font-bold outline-none" />
                       </div>
                     )}
+                  </div>
+                  
+                  <div className="col-span-1 md:col-span-2">
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Observações Operacionais</label>
+                      <button 
+                        type="button" 
+                        onClick={(e) => suggestObservations(e.currentTarget.closest('form') as HTMLFormElement)} 
+                        disabled={isGeneratingObs}
+                        className="text-[10px] font-black uppercase text-blue-600 flex items-center gap-1 hover:text-blue-700 transition-colors"
+                      >
+                        {isGeneratingObs ? <Loader2 className="animate-spin" size={12} /> : <Sparkles size={12} />}
+                        Sugerir com IA
+                      </button>
+                    </div>
+                    <textarea name="observacoes" placeholder="Relato técnico ou intercorrências..." className="w-full p-4 bg-slate-50 border rounded-2xl font-medium outline-none" rows={4} />
                   </div>
                 </div>
                 <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all">Registrar Operação</button>
@@ -538,12 +644,12 @@ const App = () => {
                 <Bot className="mx-auto mb-4 text-blue-400" size={48} />
                 <h3 className="text-2xl font-black mb-6 italic uppercase">Relatório Diário IA</h3>
                 <div className="space-y-4 max-w-sm mx-auto">
-                   <input value={manualSignature} onChange={e => setManualSignature(e.target.value)} placeholder="Nome do Policial Responsável" className="w-full p-4 bg-slate-800 rounded-2xl text-white outline-none border border-slate-700" />
+                   <input value={manualSignature} onChange={e => setManualSignature(e.target.value)} placeholder="Assinatura Manual (Nome do Operador)" className="w-full p-4 bg-slate-800 rounded-2xl text-white outline-none border border-slate-700" />
                    <div className="p-3 bg-slate-800/50 rounded-xl text-[10px] font-black uppercase text-slate-400 tracking-widest border border-slate-700/50">
-                     E-mail Logado: {userEmail}
+                     E-mail Automático: {userEmail}
                    </div>
                    <button onClick={generateReport} disabled={isAiLoading} className="w-full py-5 bg-blue-600 rounded-3xl font-black uppercase shadow-lg hover:bg-blue-500 transition-all">
-                     {isAiLoading ? 'Processando...' : 'Gerar Relatório'}
+                     {isAiLoading ? 'Processando...' : 'Gerar Relatório Diário'}
                    </button>
                 </div>
               </div>
@@ -557,13 +663,53 @@ const App = () => {
           )}
 
           {activeTab === 'seguranca' && (
-            <div className="max-w-xl mx-auto bg-white rounded-[40px] p-10 border shadow-sm">
-              <h3 className="text-xl font-black uppercase mb-8">Cadastro do Policial</h3>
-              <div className="space-y-6">
-                <input value={secFullName} onChange={e => setSecFullName(e.target.value)} placeholder="Nome Completo" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                <input value={secLotacao} onChange={e => setSecLotacao(e.target.value)} placeholder="Unidade de Lotação" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                <input value={secSetor} onChange={e => setSecSetor(e.target.value)} placeholder="Setor Operacional" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                <button className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest">Atualizar Perfil</button>
+            <div className="max-w-xl mx-auto space-y-8 animate-in zoom-in duration-500">
+              <div className="bg-white rounded-[40px] p-10 border shadow-sm">
+                <h3 className="text-xl font-black uppercase mb-8 border-b pb-4">Cadastro do Policial</h3>
+                <form onSubmit={handleUpdateSecurity} className="space-y-6">
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1 ml-1 tracking-widest">Nome Completo</label>
+                    <input value={secFullName} onChange={e => setSecFullName(e.target.value)} placeholder="Nome Completo" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-slate-400 block mb-1 ml-1 tracking-widest">Lotação</label>
+                      <input value={secLotacao} onChange={e => setSecLotacao(e.target.value)} placeholder="Ex: PPPG" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-slate-400 block mb-1 ml-1 tracking-widest">Setor</label>
+                      <input value={secSetor} onChange={e => setSecSetor(e.target.value)} placeholder="Ex: GRI" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                    </div>
+                  </div>
+                  
+                  <div className="pt-4 border-t border-slate-100">
+                    <h4 className="text-xs font-black uppercase text-slate-400 mb-6 tracking-widest flex items-center gap-2"><Lock size={14}/> Alterar Senha de Acesso</h4>
+                    <div className="space-y-4">
+                      <input 
+                        type="password" 
+                        value={secNewPassword} 
+                        onChange={e => setSecNewPassword(e.target.value)} 
+                        placeholder="Nova Senha" 
+                        className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" 
+                      />
+                      <input 
+                        type="password" 
+                        value={secConfirmPassword} 
+                        onChange={e => setSecConfirmPassword(e.target.value)} 
+                        placeholder="Confirmar Nova Senha" 
+                        className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" 
+                      />
+                    </div>
+                  </div>
+
+                  {secStatus && (
+                    <div className={`p-4 rounded-2xl text-xs font-bold ${secStatus.type === 'success' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>
+                      {secStatus.msg}
+                    </div>
+                  )}
+
+                  <button type="submit" className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all">Atualizar Perfil e Senha</button>
+                </form>
               </div>
             </div>
           )}
@@ -597,10 +743,20 @@ const App = () => {
                 </div>
                 <input name="nomePreso" defaultValue={isEditing.nomePreso} placeholder="Nome do Preso" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                 <input name="prontuario" defaultValue={isEditing.prontuario} placeholder="Prontuário" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-                <input name="destino" defaultValue={isEditing.destino} placeholder="Destino" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold col-span-1 md:col-span-2 outline-none" />
+                
+                <input name="destino" defaultValue={isEditing.destino} placeholder="Destino" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                
+                {isEditing.tipo === 'Internamento' && (
+                  <input name="quarto" defaultValue={isEditing.quarto} placeholder="Quarto/Leito" className="w-full p-4 bg-blue-50 border border-blue-100 rounded-2xl font-bold outline-none" />
+                )}
+
                 <div className="col-span-1 md:col-span-2">
                   <label className="text-[9px] font-black uppercase text-slate-400 block mb-1">Início</label>
                   <input type="datetime-local" name="dataHora" defaultValue={isEditing.dataHora.slice(0, 16)} required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                </div>
+                
+                <div className="col-span-1 md:col-span-2">
+                   <textarea name="observacoes" defaultValue={isEditing.observacoes} placeholder="Observações" className="w-full p-4 bg-slate-50 border rounded-2xl font-medium outline-none" rows={3} />
                 </div>
               </div>
               <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl">Salvar Alterações</button>
@@ -618,6 +774,7 @@ const App = () => {
             </div>
             <p className="text-2xl font-black uppercase italic text-slate-900 text-center">{selectedReg.nomePreso}</p>
             <p className="text-xs font-black text-slate-500 uppercase mt-2 tracking-widest">PRONT: {selectedReg.prontuario || 'N/A'}</p>
+            {selectedReg.quarto && <p className="text-[10px] font-black text-blue-600 uppercase mt-1">QUARTO: {selectedReg.quarto}</p>}
             <button onClick={() => window.print()} className="mt-10 w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase flex items-center justify-center gap-3 no-print hover:bg-slate-800 transition-all"><Printer size={20} /> Imprimir Ficha</button>
             <button onClick={() => setQrModalOpen(false)} className="mt-4 text-[10px] font-black uppercase text-slate-400 tracking-widest hover:text-slate-600">Fechar Guia</button>
           </div>

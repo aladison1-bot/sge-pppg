@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
@@ -44,7 +45,9 @@ import {
   ClipboardList,
   Clock,
   MapPin,
-  Shield
+  Shield,
+  Layers,
+  ArrowRightLeft
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
@@ -53,7 +56,7 @@ type Status = 'Pendente' | 'Em Andamento' | 'Concluído' | 'Cancelado';
 type Risco = 'Baixo' | 'Médio' | 'Alto';
 type TipoRegistro = 'Escolta Operacional' | 'Internamento' | 'Operação Externa';
 type PDFFilter = 'Todos' | TipoRegistro;
-type UnidadeEscopo = 'Cadeia Pública' | 'Setor de Escolta' | 'Setor de Operações Especiais' | 'Administração Central';
+type UnidadeEscopo = 'Cadeias Públicas' | 'Setor de Escolta Prisional' | 'Setor de Operações Especiais' | 'Administração Central';
 
 interface Registro {
   id: string;
@@ -66,13 +69,10 @@ interface Registro {
   risco: Risco;
   status: Status;
   observacoes: string;
-  equipe: string;
-  policiais: string;
-  dataConclusao?: string;
-  dataAltaMedica?: string;
-  createdBy: string;
   unidadeOrigem: UnidadeEscopo;
+  createdBy: string;
   createdAt: string;
+  dataAltaMedica?: string;
 }
 
 interface UserProfile {
@@ -81,7 +81,6 @@ interface UserProfile {
   isTemporary: boolean;
   fullName?: string;
   lotacao?: UnidadeEscopo;
-  setor?: string;
 }
 
 const INITIAL_DATA: Registro[] = [];
@@ -95,7 +94,7 @@ const LoadingOverlay = ({ message }: { message: string }) => (
         <Bot className="absolute inset-0 m-auto text-blue-600 animate-pulse" size={32} />
       </div>
       <div>
-        <h4 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic">Processamento Ativo</h4>
+        <h4 className="text-xl font-black text-slate-900 uppercase tracking-tighter italic leading-none">Ação do Sistema</h4>
         <p className="text-slate-500 text-sm font-medium mt-2 leading-relaxed">{message}</p>
       </div>
       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
@@ -111,15 +110,15 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [selectedUnit, setSelectedUnit] = useState<UnidadeEscopo>('Cadeia Pública');
+  const [selectedUnit, setSelectedUnit] = useState<UnidadeEscopo>('Cadeias Públicas');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const getUsers = (): UserProfile[] => {
-    const data = localStorage.getItem('sge_users_db');
+    const data = localStorage.getItem('sge_users_db_v2');
     if (!data) {
       const defaultUsers: UserProfile[] = [{ email: 'admin@pppg.gov.br', password: '123', isTemporary: true, lotacao: 'Administração Central' }];
-      localStorage.setItem('sge_users_db', JSON.stringify(defaultUsers));
+      localStorage.setItem('sge_users_db_v2', JSON.stringify(defaultUsers));
       return defaultUsers;
     }
     return JSON.parse(data);
@@ -130,7 +129,7 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
     const index = users.findIndex(u => u.email === user.email);
     if (index >= 0) users[index] = { ...users[index], ...user };
     else users.push(user);
-    localStorage.setItem('sge_users_db', JSON.stringify(users));
+    localStorage.setItem('sge_users_db_v2', JSON.stringify(users));
   };
 
   const handleLogin = (e: React.FormEvent) => {
@@ -152,10 +151,10 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
           onLoginSuccess(user);
         }
       } else {
-        setError('Acesso negado. Credenciais inválidas. Certifique-se de não haver espaços extras.');
+        setError('Acesso negado. Credenciais inválidas ou unidade não autorizada.');
       }
       setLoading(false);
-    }, 800);
+    }, 600);
   };
 
   const handleChangePassword = (e: React.FormEvent) => {
@@ -166,7 +165,7 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
       return;
     }
     if (cleanNew.length < 3) {
-      setError('A senha deve ter no mínimo 3 caracteres.');
+      setError('Mínimo 3 caracteres.');
       return;
     }
 
@@ -182,7 +181,7 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
       saveUser(updatedUser);
       onLoginSuccess(updatedUser);
       setLoading(false);
-    }, 1000);
+    }, 800);
   };
 
   return (
@@ -193,7 +192,7 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
             <ShieldAlert className="text-blue-500" size={48} />
           </div>
           <h1 className="text-3xl font-black text-slate-950 italic uppercase tracking-tighter leading-none">SGE <span className="text-blue-600">PPPG</span></h1>
-          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-2">Gestão por Unidade Operacional</p>
+          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-2">Segurança • Protocolo • Gestão</p>
         </div>
 
         {error && (
@@ -206,64 +205,39 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Email Funcional</label>
-              <input 
-                type="email" 
-                required 
-                value={email} 
-                onChange={(e) => setEmail(e.target.value)} 
-                className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" 
-                placeholder="ex: admin@pppg.gov.br"
-                autoCapitalize="none"
-                autoComplete="email"
-                spellCheck="false"
-              />
+              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" placeholder="ex: admin@pppg.gov.br" autoCapitalize="none" />
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Senha</label>
-              <input 
-                type="password" 
-                required 
-                value={password} 
-                onChange={(e) => setPassword(e.target.value)} 
-                className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" 
-                placeholder="••••" 
-              />
+              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" placeholder="••••" />
             </div>
             <button type="submit" disabled={loading} className="w-full py-5 bg-slate-950 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-3 active:scale-[0.98]">
               {loading ? <Loader2 className="animate-spin" size={18} /> : <LogIn size={18} />}
-              Acessar Sistema
+              Entrar no Sistema
             </button>
           </form>
         )}
 
         {view === 'change-password' && (
           <form onSubmit={handleChangePassword} className="space-y-6">
-            <p className="text-[10px] text-blue-600 font-black uppercase tracking-widest text-center mb-4">Configuração Inicial de Acesso</p>
-            
+            <p className="text-[10px] text-blue-600 font-black uppercase text-center mb-4">Escolha sua Lotação e Senha</p>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Sua Unidade de Lotação</label>
-              <select 
-                value={selectedUnit} 
-                onChange={(e) => setSelectedUnit(e.target.value as UnidadeEscopo)}
-                className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none text-sm uppercase"
-              >
-                <option value="Cadeia Pública">Cadeia Pública</option>
-                <option value="Setor de Escolta">Setor de Escolta</option>
-                <option value="Setor de Operações especiais">Setor de Operações Especiais</option>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Setor de Atuação</label>
+              <select value={selectedUnit} onChange={(e) => setSelectedUnit(e.target.value as UnidadeEscopo)} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none text-sm uppercase">
+                <option value="Cadeias Públicas">Cadeias Públicas</option>
+                <option value="Setor de Escolta Prisional">Setor de Escolta Prisional</option>
+                <option value="Setor de Operações Especiais">Setor de Operações Especiais</option>
               </select>
             </div>
-
-            <input type="password" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Nova Senha" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+            <input type="password" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Definir Senha" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
             <input type="password" required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirmar Senha" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-            
-            <button type="submit" disabled={loading} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-[0.98]">
-              Finalizar e Entrar
-            </button>
+            <button type="submit" disabled={loading} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-[0.98]">Concluir Primeiro Acesso</button>
           </form>
         )}
 
         <div className="mt-8 pt-8 border-t border-slate-100 text-center text-slate-400 text-[10px] font-black uppercase tracking-widest italic flex flex-col gap-1">
-          <span>SGE - ACESSO RESTRITO</span>
+          <span>SGE - PROTOCOLO RESTRITO</span>
+          <span className="text-blue-500">Desenvolvido V-1.0 2026</span>
         </div>
       </div>
     </div>
@@ -273,16 +247,17 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
 const App = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  
   const [activeTab, setActiveTab] = useState<'painel' | 'escoltas' | 'internamentos' | 'operacoes' | 'novo' | 'seguranca'>('painel');
   const [registros, setRegistros] = useState<Registro[]>(() => {
-    const saved = localStorage.getItem('sge_data_v1.5');
+    const saved = localStorage.getItem('sge_data_final_v1');
     return saved ? JSON.parse(saved) : INITIAL_DATA;
   });
 
+  // Admin unit filter (Contexto de Visão)
+  const [adminContext, setAdminContext] = useState<UnidadeEscopo | 'Global'>('Global');
+
   const [searchTerm, setSearchTerm] = useState('');
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [isActionLoading, setIsActionLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedReg, setSelectedReg] = useState<Registro | null>(null);
@@ -293,30 +268,36 @@ const App = () => {
   const [pdfTypeFilter, setPdfTypeFilter] = useState<PDFFilter>('Todos');
   const [isGeneratingObs, setIsGeneratingObs] = useState(false);
 
-  // Security State (Profile)
+  // Fix: Added missing state variables for profile management
   const [secFullName, setSecFullName] = useState('');
   const [secNewPassword, setSecNewPassword] = useState('');
   const [secConfirmPassword, setSecConfirmPassword] = useState('');
-  const [secStatus, setSecStatus] = useState<{ type: 'success' | 'error', msg: string } | null>(null);
+  const [secStatus, setSecStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+
+  // Fix: Sync profile name when user is loaded
+  useEffect(() => {
+    if (currentUser) {
+      setSecFullName(currentUser.fullName || '');
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     const savedAuth = localStorage.getItem('sge_auth_v1');
     if (savedAuth) {
-      const usersData = localStorage.getItem('sge_users_db');
+      const usersData = localStorage.getItem('sge_users_db_v2');
       if (usersData) {
         const users: UserProfile[] = JSON.parse(usersData);
         const user = users.find(u => u.email === savedAuth);
         if (user) {
           setIsAuthenticated(true);
           setCurrentUser(user);
-          setSecFullName(user.fullName || '');
         }
       }
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('sge_data_v1.5', JSON.stringify(registros));
+    localStorage.setItem('sge_data_final_v1', JSON.stringify(registros));
   }, [registros]);
 
   const handleLoginSuccess = (user: UserProfile) => {
@@ -331,59 +312,83 @@ const App = () => {
     localStorage.removeItem('sge_auth_v1');
   };
 
-  // --- Filtro de Isolamento de Unidade ---
-  const registrosFiltradosPorUnidade = useMemo(() => {
+  // --- FILTRAGEM RIGOROSA POR UNIDADE ---
+  const registrosDaUnidade = useMemo(() => {
     if (!currentUser) return [];
-    // Admin Central vê tudo
-    if (currentUser.lotacao === 'Administração Central') return registros;
-    // Outras unidades veem apenas o seu escopo
+    
+    // Perfil Administrador: Vê conforme o filtro context selecionado ou tudo (Global)
+    if (currentUser.lotacao === 'Administração Central') {
+      if (adminContext === 'Global') return registros;
+      return registros.filter(r => r.unidadeOrigem === adminContext);
+    }
+    
+    // Perfis Setoriais: Veem APENAS o que produziram/pertence à sua unidade
     return registros.filter(r => r.unidadeOrigem === currentUser.lotacao);
-  }, [registros, currentUser]);
+  }, [registros, currentUser, adminContext]);
 
-  const filteredBySearchAndDate = useMemo(() => {
-    return registrosFiltradosPorUnidade.filter(r => {
+  const filteredRegistros = useMemo(() => {
+    return registrosDaUnidade.filter(r => {
       const lowerSearch = searchTerm.toLowerCase();
       const matchSearch = r.nomePreso.toLowerCase().includes(lowerSearch) || 
                           r.prontuario.toLowerCase().includes(lowerSearch) ||
-                          r.risco.toLowerCase().includes(lowerSearch) ||
+                          r.destino.toLowerCase().includes(lowerSearch) ||
                           r.status.toLowerCase().includes(lowerSearch) ||
-                          r.tipo.toLowerCase().includes(lowerSearch) ||
-                          r.destino.toLowerCase().includes(lowerSearch);
+                          r.tipo.toLowerCase().includes(lowerSearch);
       
       if (showAllDates) return matchSearch;
-      const matchDate = r.dataHora.startsWith(viewDate);
-      return matchSearch && matchDate;
+      return matchSearch && r.dataHora.startsWith(viewDate);
     });
-  }, [registrosFiltradosPorUnidade, searchTerm, viewDate, showAllDates]);
+  }, [registrosDaUnidade, searchTerm, viewDate, showAllDates]);
 
   const handleAddRegistro = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!currentUser) return;
-    const formData = new FormData(e.currentTarget);
-    const tipo = formData.get('tipo') as TipoRegistro;
     
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+    
+    const tipo = formData.get('tipo') as TipoRegistro;
+    const nomePreso = tipo === 'Operação Externa' ? '-' : (formData.get('nomePreso') as string);
+    const prontuario = tipo === 'Operação Externa' ? '-' : (formData.get('prontuario') as string || '');
+    const destino = formData.get('destino') as string;
+    const quarto = formData.get('quarto') as string || undefined;
+    const dataHora = formData.get('dataHora') as string;
+    const risco = formData.get('risco') as Risco;
+    const observacoes = formData.get('observacoes') as string || '';
+    const dataAltaMedica = formData.get('dataAltaMedica') as string || undefined;
+
+    const unidadeAlocada: UnidadeEscopo = currentUser.lotacao === 'Administração Central' 
+      ? (adminContext === 'Global' ? 'Cadeias Públicas' : adminContext) 
+      : currentUser.lotacao!;
+
     const novo: Registro = {
-      id: Math.random().toString(36).substr(2, 9),
-      tipo: tipo,
-      nomePreso: tipo === 'Operação Externa' ? '-' : (formData.get('nomePreso') as string),
-      prontuario: tipo === 'Operação Externa' ? '-' : (formData.get('prontuario') as string || ''),
-      destino: formData.get('destino') as string,
-      quarto: formData.get('quarto') as string || undefined,
-      dataHora: formData.get('dataHora') as string,
-      risco: formData.get('risco') as Risco,
+      id: Math.random().toString(36).substr(2, 9).toUpperCase(),
+      tipo,
+      nomePreso,
+      prontuario,
+      destino,
+      quarto,
+      dataHora,
+      risco,
       status: 'Pendente',
-      observacoes: formData.get('observacoes') as string || '',
-      equipe: '',
-      policiais: '',
-      unidadeOrigem: currentUser.lotacao || 'Cadeia Pública',
+      observacoes,
+      unidadeOrigem: unidadeAlocada,
       createdBy: currentUser.email,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      dataAltaMedica
     };
-    setRegistros([novo, ...registros]);
-    setActiveTab(novo.tipo === 'Internamento' ? 'internamentos' : 'escoltas');
-    setViewDate(novo.dataHora.split('T')[0]);
-    setShowAllDates(false);
-    e.currentTarget.reset();
+    
+    setLoadingMessage("Protocolando Atendimento...");
+    setIsActionLoading(true);
+    
+    setTimeout(() => {
+        setRegistros(prev => [novo, ...prev]);
+        setIsActionLoading(false);
+        setActiveTab(novo.tipo === 'Internamento' ? 'internamentos' : 'escoltas');
+        setViewDate(novo.dataHora.split('T')[0]);
+        setShowAllDates(false);
+        form.reset();
+    }, 500);
   };
 
   const handleEditRegistro = (e: React.FormEvent<HTMLFormElement>) => {
@@ -408,23 +413,13 @@ const App = () => {
   };
 
   const updateStatus = (id: string, newStatus: Status) => {
-    setRegistros(registros.map(r => r.id === id ? { 
-      ...r, 
-      status: newStatus,
-      dataConclusao: newStatus === 'Concluído' ? new Date().toISOString() : r.dataConclusao 
-    } : r));
+    setRegistros(prev => prev.map(r => r.id === id ? { ...r, status: newStatus } : r));
   };
 
   const handleExportPDF = () => {
-    let baseData = filteredBySearchAndDate;
-    if (pdfTypeFilter !== 'Todos') {
-      baseData = baseData.filter(r => r.tipo === pdfTypeFilter);
-    }
-    if (baseData.length === 0) return alert("Nenhum dado encontrado para exportação.");
-
-    const operatorName = secFullName || currentUser?.email || 'Operador SGE';
-    const dateNow = new Date().toLocaleString('pt-BR');
-    const displayDate = showAllDates ? "TODAS AS DATAS" : new Date(viewDate + 'T00:00:00').toLocaleDateString('pt-BR');
+    let baseData = filteredRegistros;
+    if (pdfTypeFilter !== 'Todos') baseData = baseData.filter(r => r.tipo === pdfTypeFilter);
+    if (baseData.length === 0) return alert("Nada para exportar.");
 
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
@@ -432,67 +427,59 @@ const App = () => {
     const htmlContent = `
       <html>
         <head>
-          <title>Relatório Operacional - ${currentUser?.lotacao}</title>
+          <title>SGE Relatório - ${currentUser?.lotacao}</title>
           <style>
-            body { font-family: sans-serif; padding: 40px; color: #1e293b; line-height: 1.4; font-size: 10px; }
-            header { border-bottom: 2px solid #334155; padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
-            h1 { margin: 0; font-size: 18px; text-transform: uppercase; }
-            h1 span { color: #2563eb; }
-            .meta { font-size: 9px; font-weight: bold; text-transform: uppercase; color: #64748b; }
-            table { width: 100%; border-collapse: collapse; margin-top: 15px; table-layout: fixed; }
-            th { background: #f1f5f9; text-align: left; padding: 6px; text-transform: uppercase; border: 1px solid #cbd5e1; font-size: 8px; }
+            body { font-family: sans-serif; padding: 30px; color: #0f172a; font-size: 10px; }
+            header { border-bottom: 3px solid #1e293b; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; }
+            h1 { margin: 0; font-size: 20px; text-transform: uppercase; }
+            .meta { font-size: 8px; font-weight: bold; text-transform: uppercase; color: #64748b; margin-top: 2px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; table-layout: fixed; }
+            th { background: #f8fafc; text-align: left; padding: 6px; border: 1px solid #cbd5e1; font-size: 8px; text-transform: uppercase; }
             td { padding: 6px; border: 1px solid #cbd5e1; vertical-align: top; word-wrap: break-word; }
-            .signature-space { margin-top: 60px; display: flex; justify-content: space-around; }
-            .sig-box { border-top: 1px solid #334155; width: 40%; text-align: center; padding-top: 5px; font-size: 9px; font-weight: bold; text-transform: uppercase; }
+            .footer { margin-top: 40px; text-align: center; font-size: 7px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 5px; }
+            .sig { margin-top: 50px; display: flex; justify-content: space-around; }
+            .sig-box { border-top: 1px solid #000; width: 40%; text-align: center; padding-top: 3px; font-size: 8px; text-transform: uppercase; font-weight: bold; }
           </style>
         </head>
         <body>
           <header>
             <div>
               <h1>SGE <span>PPPG</span></h1>
-              <div class="meta">${currentUser?.lotacao}</div>
-              <div class="meta">Modalidade: ${pdfTypeFilter}</div>
+              <div class="meta">Lotação: ${currentUser?.lotacao}</div>
+              <div class="meta">Visão: ${adminContext} | Filtro: ${pdfTypeFilter}</div>
             </div>
             <div style="text-align: right">
-              <div class="meta">Período: ${displayDate}</div>
-              <div class="meta">Exportado: ${dateNow}</div>
+              <div class="meta">Data Relatório: ${new Date().toLocaleDateString('pt-BR')}</div>
+              <div class="meta">Desenvolvido V-1.0 2026</div>
             </div>
           </header>
           <table>
             <thead>
               <tr>
                 <th style="width: 15%">Tipo</th>
-                <th style="width: 25%">Identificação</th>
-                <th style="width: 15%">Destino</th>
+                <th style="width: 25%">Custodiado / ID</th>
+                <th style="width: 20%">Destino</th>
                 <th style="width: 10%">Risco/Status</th>
-                <th style="width: 35%">Observações</th>
+                <th style="width: 30%">Relato Técnico</th>
               </tr>
             </thead>
             <tbody>
               ${baseData.map(r => `
                 <tr>
                   <td>${r.tipo}</td>
-                  <td>${r.tipo === 'Operação Externa' ? 'OP. EXTERNA' : `<strong>${r.nomePreso}</strong><br/>Pront: ${r.prontuario}`}</td>
-                  <td>${r.destino}</td>
+                  <td>${r.tipo === 'Operação Externa' ? 'COMB. SEGURANÇA' : `<strong>${r.nomePreso}</strong><br/>Pront: ${r.prontuario}`}</td>
+                  <td>${r.destino}${r.quarto ? `<br/>Q/L: ${r.quarto}` : ''}</td>
                   <td>${r.risco}<br/>${r.status}</td>
                   <td>${r.observacoes || '-'}</td>
                 </tr>
               `).join('')}
             </tbody>
           </table>
-          <div class="signature-space">
-            <div class="sig-box">
-              <div style="margin-bottom: 2px">${operatorName}</div>
-              Emissor Responsável
-            </div>
-            <div class="sig-box">
-              <div style="margin-bottom: 2px">&nbsp;</div>
-              Chefe do Setor / Unidade
-            </div>
+          <div class="sig">
+            <div class="sig-box">Assinatura Operador</div>
+            <div class="sig-box">Assinatura Chefia</div>
           </div>
-          <footer style="margin-top: 40px; text-align: center; font-size: 8px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px;">
-            DOCUMENTO OPERACIONAL RESTRITO - POLÍCIA PENAL PPPG
-          </footer>
+          <div class="footer">DOCUMENTO RESTRITO SGE PPPG - DESENVOLVIDO V-1.0 2026</div>
           <script>window.onload = () => { window.print(); window.close(); }</script>
         </body>
       </html>
@@ -503,16 +490,13 @@ const App = () => {
 
   const suggestObservations = async (form: HTMLFormElement) => {
     const formData = new FormData(form);
-    const nome = formData.get('nomePreso');
     const destino = formData.get('destino');
-    const tipo = formData.get('tipo');
-    const risco = formData.get('risco');
-    if (!destino) return alert("Preencha o destino.");
+    if (!destino) return alert("Destino obrigatório para IA.");
 
     setIsGeneratingObs(true);
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     try {
-      const prompt = `Gere uma observação técnica operacional curta para uma ${tipo} com destino ${destino} e risco ${risco}. Seja formal.`;
+      const prompt = `Gere uma observação curta e formal para uma operação prisional com destino ${destino}.`;
       const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
       const obsTextarea = form.querySelector('textarea[name="observacoes"]') as HTMLTextAreaElement;
       if (obsTextarea) obsTextarea.value = response.text || '';
@@ -527,50 +511,38 @@ const App = () => {
     e.preventDefault();
     setSecStatus(null);
     if (!currentUser) return;
-    
-    const usersData = localStorage.getItem('sge_users_db');
-    if (!usersData) return;
-    const users: UserProfile[] = JSON.parse(usersData);
+    const usersData = localStorage.getItem('sge_users_db_v2');
+    const users: UserProfile[] = JSON.parse(usersData || '[]');
     const idx = users.findIndex(u => u.email === currentUser.email);
     if (idx === -1) return;
-
-    if (secNewPassword && secNewPassword !== secConfirmPassword) {
-      setSecStatus({ type: 'error', msg: 'Senhas não coincidem.' });
-      return;
-    }
-
+    if (secNewPassword && secNewPassword !== secConfirmPassword) return setSecStatus({ type: 'error', msg: 'Senhas não conferem.' });
     if (secNewPassword) users[idx].password = secNewPassword;
     users[idx].fullName = secFullName;
-
-    localStorage.setItem('sge_users_db', JSON.stringify(users));
+    localStorage.setItem('sge_users_db_v2', JSON.stringify(users));
     setCurrentUser(users[idx]);
-    setSecStatus({ type: 'success', msg: 'Perfil atualizado.' });
+    setSecStatus({ type: 'success', msg: 'Salvo com sucesso.' });
     setSecNewPassword(''); setSecConfirmPassword('');
   };
-
-  const goToEscoltas = () => { setActiveTab('escoltas'); setSearchTerm(''); setShowAllDates(true); };
-  const goToInternamentos = () => { setActiveTab('internamentos'); setSearchTerm(''); setShowAllDates(true); };
-  const goToAltoRisco = () => { setActiveTab('escoltas'); setSearchTerm('Alto'); setShowAllDates(true); };
-  const goToPendentesHoje = () => { setActiveTab('escoltas'); setViewDate(new Date().toISOString().split('T')[0]); setSearchTerm('Pendente'); setShowAllDates(false); };
 
   if (!isAuthenticated || !currentUser) return <AuthSystem onLoginSuccess={handleLoginSuccess} />;
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-900">
-      {(isAiLoading || isExporting) && <LoadingOverlay message={loadingMessage} />}
+      {isActionLoading && <LoadingOverlay message={loadingMessage} />}
       
       <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-20 no-print shrink-0">
         <div className="p-8 border-b border-slate-800 bg-slate-950/50 text-center">
           <h1 className="text-2xl font-black tracking-tighter flex items-center justify-center gap-2 italic uppercase">
             <ShieldAlert className="text-blue-500" size={32} /> SGE <span className="text-blue-500">PPPG</span>
           </h1>
-          <div className="mt-4 px-3 py-1 bg-blue-600/20 border border-blue-500/30 rounded-lg">
-            <p className="text-[9px] font-black uppercase text-blue-400 tracking-widest truncate">{currentUser.lotacao}</p>
+          <div className="mt-4 px-3 py-1 bg-blue-600/10 border border-blue-500/20 rounded-lg">
+            <p className="text-[8px] font-black uppercase text-blue-400 tracking-widest truncate">{currentUser.lotacao}</p>
           </div>
         </div>
+        
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
           <button onClick={() => setActiveTab('painel')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'painel' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <LayoutDashboard size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Painel Gestor</span>
+            <LayoutDashboard size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Dashboard</span>
           </button>
           <button onClick={() => { setActiveTab('escoltas'); setShowAllDates(false); setSearchTerm(''); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'escoltas' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <CalendarIcon size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Escoltas</span>
@@ -579,89 +551,96 @@ const App = () => {
             <Ambulance size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Internamentos</span>
           </button>
           <button onClick={() => setActiveTab('operacoes')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'operacoes' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <Activity size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Operações</span>
+            <Activity size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Relatórios</span>
           </button>
-          <div className="pt-8">
-            <button onClick={() => setActiveTab('novo')} className="w-full flex items-center justify-center gap-3 px-4 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-[0.98]">
-              <PlusCircle size={20} /> Novo Lançamento
+          
+          <div className="pt-6">
+            <button onClick={() => setActiveTab('novo')} className="w-full flex items-center justify-center gap-3 px-4 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 font-black text-[10px] uppercase tracking-widest shadow-xl transition-all active:scale-[0.98]">
+              <PlusCircle size={18} /> Novo Protocolo
             </button>
           </div>
         </nav>
-        <div className="p-4 border-t border-slate-800 flex flex-col gap-2">
-          <button onClick={() => setActiveTab('seguranca')} className={`flex items-center gap-3 px-4 py-2 rounded-xl transition-all ${activeTab === 'seguranca' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <Settings size={14} /> <span className="text-[10px] font-black uppercase tracking-widest">Meu Perfil</span>
+
+        <div className="p-4 border-t border-slate-800 text-center">
+           <p className="text-[8px] font-black uppercase text-slate-500 tracking-[0.2em] mb-4">Desenvolvido V-1.0 2026</p>
+           <button onClick={() => setActiveTab('seguranca')} className={`w-full flex items-center gap-3 px-4 py-2 mb-2 rounded-xl text-slate-400 hover:bg-slate-800 transition-all ${activeTab === 'seguranca' && 'text-white'}`}>
+            <Settings size={14} /> <span className="text-[10px] font-black uppercase">Perfil</span>
           </button>
-          <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-2 text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all">
-            <LogOut size={16} /> <span className="text-[10px] font-black uppercase tracking-widest">Sair</span>
+          <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2 text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all">
+            <LogOut size={16} /> <span className="text-[10px] font-black uppercase">Sair</span>
           </button>
         </div>
       </aside>
 
       <main className="flex-1 overflow-y-auto">
-        <header className="bg-white/80 backdrop-blur-xl border-b border-slate-200 px-6 md:px-10 py-5 sticky top-0 z-10 flex flex-col md:flex-row justify-between items-center gap-4 no-print">
+        <header className="bg-white/80 backdrop-blur-xl border-b border-slate-200 px-6 py-5 sticky top-0 z-10 flex flex-col md:flex-row justify-between items-center gap-4 no-print">
           <div className="flex items-center gap-6 w-full md:w-auto">
-            <h2 className="text-xl font-black text-slate-900 uppercase italic whitespace-nowrap">{activeTab.toUpperCase()}</h2>
-            {(activeTab === 'escoltas' || activeTab === 'internamentos' || activeTab === 'operacoes') && (
-              <div className="flex items-center gap-3 overflow-x-auto no-scrollbar">
-                 <input 
-                  type="date" 
-                  value={viewDate} 
-                  onChange={e => { setViewDate(e.target.value); setShowAllDates(false); }} 
-                  className={`p-2 border rounded-xl text-xs font-black uppercase outline-none transition-colors ${showAllDates ? 'bg-slate-100 opacity-50' : 'bg-slate-100'}`} 
-                 />
-                 {showAllDates && (
-                   <button 
-                    onClick={() => { setShowAllDates(false); setSearchTerm(''); }}
-                    className="text-[9px] font-black uppercase text-blue-600 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100 hover:bg-blue-100 transition-all whitespace-nowrap"
-                   >
-                     Filtro Geral Ativo
-                   </button>
-                 )}
+            <h2 className="text-xl font-black text-slate-900 uppercase italic whitespace-nowrap">{activeTab}</h2>
+            {(activeTab === 'escoltas' || activeTab === 'internamentos') && (
+              <div className="flex items-center gap-3">
+                 <input type="date" value={viewDate} onChange={e => { setViewDate(e.target.value); setShowAllDates(false); }} className={`p-2 border rounded-xl text-xs font-black uppercase outline-none transition-colors ${showAllDates ? 'bg-slate-100 opacity-50' : 'bg-slate-100'}`} />
+                 {showAllDates && <button onClick={() => { setShowAllDates(false); }} className="text-[9px] font-black uppercase text-blue-600 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100">Visão Geral Ativa</button>}
               </div>
             )}
           </div>
-          <div className="flex items-center gap-4 w-full md:w-auto">
-            <div className="relative w-full">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input type="text" placeholder="Pesquisar registros da unidade..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20" />
-            </div>
+          <div className="relative w-full md:max-w-xs">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input type="text" placeholder="Filtrar nesta unidade..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10" />
           </div>
         </header>
 
         <div className="p-4 md:p-10 pb-20">
           {activeTab === 'painel' && (
-            <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
-              <div className="bg-slate-900 p-8 rounded-[40px] text-white flex flex-col md:flex-row items-center justify-between gap-6 shadow-2xl">
-                <div className="text-center md:text-left">
-                  <h3 className="text-xl font-black uppercase italic tracking-tighter">Bem-vindo, {currentUser.fullName}</h3>
-                  <p className="text-xs text-slate-400 mt-1 uppercase font-bold tracking-widest">{currentUser.lotacao}</p>
+            <div className="max-w-5xl mx-auto space-y-10 animate-in fade-in duration-500">
+              {/* ADMIN CONTROLS: BOTÕES DE UNIDADE NO ACESSO PRINCIPAL */}
+              {currentUser.lotacao === 'Administração Central' && (
+                <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm space-y-6">
+                   <div className="flex items-center gap-3 border-b pb-4">
+                      <ArrowRightLeft className="text-blue-600" size={20} />
+                      <h4 className="text-xs font-black uppercase tracking-widest">Painel Administrativo: Alternar Lotação</h4>
+                   </div>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <button onClick={() => setAdminContext('Global')} className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest border transition-all ${adminContext === 'Global' ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-50 text-slate-500'}`}>Visão Global</button>
+                      <button onClick={() => setAdminContext('Cadeias Públicas')} className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest border transition-all ${adminContext === 'Cadeias Públicas' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-500'}`}>Cadeias Públicas</button>
+                      <button onClick={() => setAdminContext('Setor de Escolta Prisional')} className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest border transition-all ${adminContext === 'Setor de Escolta Prisional' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-500'}`}>Escolta Prisional</button>
+                      <button onClick={() => setAdminContext('Setor de Operações Especiais')} className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest border transition-all ${adminContext === 'Setor de Operações Especiais' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-500'}`}>Operações Especiais</button>
+                   </div>
                 </div>
-                <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-2xl">
-                  <Shield className="text-emerald-500" size={16} />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Acesso Liberado</span>
+              )}
+
+              <div className="bg-slate-900 p-10 rounded-[40px] text-white flex flex-col md:flex-row items-center justify-between gap-8 shadow-2xl relative overflow-hidden">
+                <div className="relative z-10 text-center md:text-left">
+                  <h3 className="text-3xl font-black uppercase italic tracking-tighter leading-none">Status Operacional</h3>
+                  <p className="text-xs text-slate-400 mt-2 uppercase font-black tracking-widest">Lotação: {currentUser.lotacao} {currentUser.lotacao === 'Administração Central' && `| Modo: ${adminContext}`}</p>
+                  <p className="text-[11px] text-blue-500 font-black mt-4 uppercase italic">Desenvolvido V-1.0 2026</p>
+                </div>
+                <div className="bg-white/5 border border-white/10 p-6 rounded-[32px] text-center shrink-0 min-w-[200px]">
+                   <ShieldCheck className="mx-auto mb-2 text-emerald-400" size={32} />
+                   <p className="text-xs font-black uppercase text-emerald-400">Ambiente Restrito</p>
+                   <p className="text-[9px] text-slate-500 uppercase mt-1">SGE Ativo & Monitorado</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div onClick={goToEscoltas} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all active:scale-[0.98]">
+                <div onClick={() => { setActiveTab('escoltas'); setViewDate(new Date().toISOString().split('T')[0]); setShowAllDates(false); }} className="bg-white p-8 rounded-[32px] border border-slate-200 flex flex-col items-center cursor-pointer hover:scale-[1.02] transition-all shadow-sm">
                   <LayoutDashboard className="text-blue-600 mb-2" size={24} />
-                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Escoltas Unidade</p>
-                  <p className="text-4xl font-black mt-1">{registrosFiltradosPorUnidade.filter(r => r.tipo === 'Escolta Operacional').length}</p>
+                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Escoltas Totais</p>
+                  <p className="text-4xl font-black mt-1">{registrosDaUnidade.filter(r => r.tipo === 'Escolta Operacional').length}</p>
                 </div>
-                <div onClick={goToInternamentos} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all active:scale-[0.98]">
+                <div onClick={() => { setActiveTab('internamentos'); setViewDate(new Date().toISOString().split('T')[0]); setShowAllDates(false); }} className="bg-white p-8 rounded-[32px] border border-slate-200 flex flex-col items-center cursor-pointer hover:scale-[1.02] transition-all shadow-sm">
                   <Ambulance className="text-emerald-600 mb-2" size={24} />
                   <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Internamentos</p>
-                  <p className="text-4xl font-black mt-1">{registrosFiltradosPorUnidade.filter(r => r.tipo === 'Internamento').length}</p>
+                  <p className="text-4xl font-black mt-1">{registrosDaUnidade.filter(r => r.tipo === 'Internamento').length}</p>
                 </div>
-                <div onClick={goToAltoRisco} className="bg-white p-6 rounded-3xl shadow-sm border border-rose-200 flex flex-col items-center cursor-pointer hover:scale-[1.02] hover:shadow-md transition-all active:scale-[0.98]">
+                <div onClick={() => { setActiveTab('escoltas'); setSearchTerm('Alto'); setShowAllDates(true); }} className="bg-white p-8 rounded-[32px] border border-rose-100 flex flex-col items-center cursor-pointer hover:scale-[1.02] transition-all shadow-sm">
                   <ShieldAlert className="text-rose-600 mb-2" size={24} />
                   <p className="text-[10px] font-black uppercase text-rose-500 tracking-widest">Alto Risco</p>
-                  <p className="text-4xl font-black mt-1 text-rose-600">{registrosFiltradosPorUnidade.filter(r => r.risco === 'Alto').length}</p>
+                  <p className="text-4xl font-black mt-1 text-rose-600">{registrosDaUnidade.filter(r => r.risco === 'Alto').length}</p>
                 </div>
-                <div onClick={goToPendentesHoje} className="bg-blue-600 p-6 rounded-3xl shadow-xl text-white flex flex-col items-center cursor-pointer hover:scale-[1.02] hover:shadow-blue-500/20 transition-all active:scale-[0.98]">
-                  <ClipboardCheck className="text-blue-200 mb-2" size={24} />
+                <div className="bg-blue-600 p-8 rounded-[32px] shadow-xl text-white flex flex-col items-center">
+                  <Clock className="text-blue-200 mb-2" size={24} />
                   <p className="text-[10px] font-black uppercase text-blue-200 tracking-widest">Pendentes Hoje</p>
-                  <p className="text-4xl font-black mt-1">{registrosFiltradosPorUnidade.filter(r => r.status === 'Pendente' && r.dataHora.startsWith(new Date().toISOString().split('T')[0])).length}</p>
+                  <p className="text-4xl font-black mt-1">{registrosDaUnidade.filter(r => r.status === 'Pendente' && r.dataHora.startsWith(new Date().toISOString().split('T')[0])).length}</p>
                 </div>
               </div>
             </div>
@@ -669,62 +648,49 @@ const App = () => {
 
           {(activeTab === 'escoltas' || activeTab === 'internamentos') && (
             <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-500">
-              <div className="bg-slate-50/50 px-6 md:px-8 py-3 border-b text-[10px] font-black uppercase text-slate-400 tracking-widest flex justify-between items-center">
-                <span>VISTA: <span className="text-blue-600">{showAllDates ? 'HISTÓRICO DA UNIDADE' : 'OPERACIONAL DO DIA'}</span></span>
-                {searchTerm && <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[9px]">Filtro Ativo</span>}
+              <div className="bg-slate-50 px-8 py-4 border-b flex justify-between items-center">
+                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Listagem Operacional | Unidade: {currentUser.lotacao}</p>
+                 <p className="text-[9px] font-black text-blue-500 uppercase italic">Desenvolvido V-1.0 2026</p>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[600px]">
+                <table className="w-full min-w-[700px]">
                   <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase">
                     <tr>
-                      <th className="px-6 md:px-8 py-4 text-left">Identificação</th>
-                      {activeTab === 'internamentos' && <th className="px-6 md:px-8 py-4 text-left">Localização</th>}
-                      <th className="px-6 md:px-8 py-4 text-left">Status</th>
-                      <th className="px-6 md:px-8 py-4 text-left">Operador</th>
-                      <th className="px-6 md:px-8 py-4 text-right">Ações</th>
+                      <th className="px-8 py-5 text-left">Identificação</th>
+                      {activeTab === 'internamentos' && <th className="px-8 py-5 text-left">Localização</th>}
+                      <th className="px-8 py-5 text-left">Status Ativo</th>
+                      <th className="px-8 py-5 text-left">Setor Origem</th>
+                      <th className="px-8 py-5 text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y text-sm">
-                    {filteredBySearchAndDate.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).length === 0 ? (
-                      <tr><td colSpan={5} className="py-20 text-center text-slate-400 font-black uppercase tracking-widest opacity-50 italic">Sem registros disponíveis para esta unidade.</td></tr>
-                    ) : filteredBySearchAndDate.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).map(reg => (
+                    {filteredRegistros.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).length === 0 ? (
+                      <tr><td colSpan={5} className="py-24 text-center text-slate-400 font-black uppercase tracking-widest opacity-50 italic italic">Nenhum registro encontrado para esta visão.</td></tr>
+                    ) : filteredRegistros.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).map(reg => (
                       <tr key={reg.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 md:px-8 py-5">
-                          {reg.tipo === 'Operação Externa' ? (
-                            <div>
-                              <p className="font-bold text-slate-900 uppercase text-xs italic">Op. Externa / Comboio</p>
-                              <p className="text-[10px] text-slate-400 uppercase">PARA: {reg.destino} {showAllDates && `(${new Date(reg.dataHora).toLocaleDateString()})`}</p>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex items-center gap-2">
-                                <p className="font-bold text-slate-900">{reg.nomePreso}</p>
-                                {reg.risco === 'Alto' && <span className="bg-rose-100 text-rose-600 text-[8px] font-black px-1.5 py-0.5 rounded uppercase">Alto Risco</span>}
-                              </div>
-                              <p className="text-[10px] text-slate-400 uppercase">PRONT: {reg.prontuario || 'N/A'} • {reg.destino}</p>
-                            </>
-                          )}
+                        <td className="px-8 py-6">
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-slate-900 uppercase">{reg.tipo === 'Operação Externa' ? 'OP. ESTRATÉGICA' : reg.nomePreso}</p>
+                            {reg.risco === 'Alto' && <span className="bg-rose-100 text-rose-600 text-[8px] font-black px-1.5 py-0.5 rounded">ALTO RISCO</span>}
+                          </div>
+                          <p className="text-[10px] text-slate-400 uppercase mt-1">PRONT: {reg.prontuario || '-'} • DESTINO: {reg.destino}</p>
                         </td>
-                        {activeTab === 'internamentos' && (
-                          <td className="px-6 md:px-8 py-5">
-                            <p className="text-[10px] font-black text-blue-600 uppercase flex items-center gap-1"><BedDouble size={12}/> {reg.quarto || '-'}</p>
-                          </td>
-                        )}
-                        <td className="px-6 md:px-8 py-5">
-                          <select value={reg.status} onChange={e => updateStatus(reg.id, e.target.value as Status)} className="text-[10px] font-black p-2 border rounded-xl bg-white outline-none focus:ring-2 focus:ring-blue-500/20">
+                        {activeTab === 'internamentos' && <td className="px-8 py-6 text-[10px] font-black text-blue-600 uppercase"><MapPin size={12} className="inline mr-1" /> {reg.quarto || '-'}</td>}
+                        <td className="px-8 py-6">
+                          <select value={reg.status} onChange={e => updateStatus(reg.id, e.target.value as Status)} className="text-[10px] font-black p-2 border rounded-xl bg-white outline-none focus:ring-4 focus:ring-blue-500/10">
                             <option value="Pendente">Pendente</option>
                             <option value="Em Andamento">Em Andamento</option>
                             <option value="Concluído">Concluído</option>
                             <option value="Cancelado">Cancelado</option>
                           </select>
                         </td>
-                        <td className="px-6 md:px-8 py-5">
-                          <p className="text-[10px] font-black text-slate-500 uppercase truncate max-w-[100px]" title={reg.createdBy}>{reg.createdBy.split('@')[0]}</p>
+                        <td className="px-8 py-6">
+                          <p className="text-[10px] font-black text-slate-500 uppercase truncate max-w-[120px]">{reg.unidadeOrigem}</p>
                         </td>
-                        <td className="px-6 md:px-8 py-5 text-right">
-                          <div className="flex justify-end gap-1 md:gap-3">
-                            <button onClick={() => setIsEditing(reg)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-lg transition-colors" title="Editar"><Edit3 size={18} /></button>
-                            <button onClick={() => { setSelectedReg(reg); setDetailModalOpen(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors" title="Ver Ficha"><Eye size={18} /></button>
+                        <td className="px-8 py-6 text-right">
+                          <div className="flex justify-end gap-1">
+                            <button onClick={() => setIsEditing(reg)} className="p-3 text-amber-500 hover:bg-amber-50 rounded-2xl" title="Editar"><Edit3 size={18} /></button>
+                            <button onClick={() => { setSelectedReg(reg); setDetailModalOpen(true); }} className="p-3 text-blue-600 hover:bg-blue-50 rounded-2xl" title="Ficha"><Eye size={18} /></button>
                           </div>
                         </td>
                       </tr>
@@ -737,92 +703,100 @@ const App = () => {
 
           {activeTab === 'novo' && (
             <div className="max-w-4xl mx-auto bg-white rounded-[40px] p-6 md:p-12 border shadow-2xl animate-in zoom-in duration-500">
-              <h3 className="text-3xl font-black mb-8 italic uppercase text-slate-900 border-b pb-4">Lançamento Unidade</h3>
+              <div className="flex justify-between items-center mb-10 border-b pb-6">
+                 <div>
+                    <h3 className="text-3xl font-black italic uppercase text-slate-900 leading-none">Novo Registro SGE</h3>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Origem: {currentUser.lotacao}</p>
+                 </div>
+                 <p className="text-[11px] font-black text-blue-600 uppercase italic">Desenvolvido V-1.0 2026</p>
+              </div>
+
               <form onSubmit={handleAddRegistro} className="space-y-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div>
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Modalidade</label>
-                    <select name="tipo" value={newModality} onChange={e => setNewModality(e.target.value as TipoRegistro)} className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none focus:ring-2 focus:ring-blue-500/20">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 block tracking-widest ml-1">Modalidade</label>
+                    <select name="tipo" value={newModality} onChange={e => setNewModality(e.target.value as TipoRegistro)} className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none focus:ring-4 focus:ring-blue-500/10">
                       <option value="Escolta Operacional">Escolta Operacional</option>
                       <option value="Internamento">Internamento</option>
                       <option value="Operação Externa">Operação Externa</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Risco</label>
-                    <select name="risco" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none focus:ring-2 focus:ring-blue-500/20">
-                      <option value="Baixo">Baixo</option>
-                      <option value="Médio">Médio</option>
-                      <option value="Alto">Alto</option>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 block tracking-widest ml-1">Classificação Risco</label>
+                    <select name="risco" className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none focus:ring-4 focus:ring-blue-500/10">
+                      <option value="Baixo">Risco Baixo</option>
+                      <option value="Médio">Risco Médio</option>
+                      <option value="Alto">Risco Alto (Atenção)</option>
                     </select>
                   </div>
                   
                   {newModality !== 'Operação Externa' ? (
                     <>
-                      <input name="nomePreso" placeholder="Nome Completo do Preso" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
-                      <input name="prontuario" placeholder="Nº Prontuário" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-400 block tracking-widest ml-1">Nome do Preso</label>
+                        <input name="nomePreso" placeholder="Nome Completo" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-400 block tracking-widest ml-1">Prontuário</label>
+                        <input name="prontuario" placeholder="Nº SISP" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                      </div>
                     </>
                   ) : (
-                    <div className="col-span-1 md:col-span-2 p-5 bg-blue-50 border border-blue-100 rounded-2xl text-[10px] font-black text-blue-700 uppercase italic leading-relaxed">
-                      Lançamento de Apoio Estratégico. Identificação nominal ocultada.
-                    </div>
+                    <div className="col-span-1 md:col-span-2 p-6 bg-slate-900 rounded-3xl text-[10px] font-black text-blue-400 uppercase italic leading-relaxed">Operação Externa: Dados individuais omitidos por segurança institucional.</div>
                   )}
                   
                   <div className={newModality === 'Internamento' ? 'col-span-1' : 'col-span-1 md:col-span-2'}>
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Destino</label>
-                    <input name="destino" placeholder="Local de Destino / Hospital" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest ml-1">Local de Destino</label>
+                    <input name="destino" placeholder="Ex: Hospital Central / Unidade Judiciária" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-4 focus:ring-blue-500/10" />
                   </div>
 
                   {newModality === 'Internamento' && (
-                    <div>
-                      <label className="text-[10px] font-black uppercase text-blue-600 block mb-2 tracking-widest flex items-center gap-1"><BedDouble size={12}/> Quarto/Leito</label>
-                      <input name="quarto" placeholder="Ex: Q. 302 / L. 04" className="w-full p-4 bg-blue-50 border border-blue-100 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-blue-600 block ml-1 tracking-widest flex items-center gap-1"><BedDouble size={12}/> Quarto/Leito</label>
+                      <input name="quarto" placeholder="Ex: Q. 302 / L. 04" className="w-full p-4 bg-blue-50 border border-blue-100 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-blue-500/10" />
                     </div>
                   )}
 
-                  <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div>
-                      <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Início Programado</label>
-                      <input type="datetime-local" name="dataHora" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500/20" />
-                    </div>
+                  <div className="col-span-1 md:col-span-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 block ml-1 tracking-widest mb-2">Data e Hora Inicial</label>
+                    <input type="datetime-local" name="dataHora" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none focus:ring-4 focus:ring-blue-500/10" />
                   </div>
                   
                   <div className="col-span-1 md:col-span-2">
-                    <div className="flex justify-between items-center mb-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Relatório Técnico</label>
+                    <div className="flex justify-between items-center mb-2 px-1">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Observações Operacionais</label>
                       <button type="button" onClick={(e) => suggestObservations(e.currentTarget.closest('form') as HTMLFormElement)} disabled={isGeneratingObs} className="text-[10px] font-black uppercase text-blue-600 flex items-center gap-1">
-                        {isGeneratingObs ? <Loader2 className="animate-spin" size={12} /> : <Sparkles size={12} />} IA
+                        {isGeneratingObs ? <Loader2 className="animate-spin" size={12} /> : <Sparkles size={12} />} IA Ativa
                       </button>
                     </div>
-                    <textarea name="observacoes" placeholder="Descreva intercorrências..." className="w-full p-4 bg-slate-50 border rounded-2xl font-medium outline-none focus:ring-2 focus:ring-blue-500/20 min-h-[120px]" rows={4} />
+                    <textarea name="observacoes" placeholder="Relato técnico detalhado do atendimento..." className="w-full p-5 bg-slate-50 border rounded-3xl font-medium outline-none min-h-[140px]" rows={4} />
                   </div>
                 </div>
-                <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-[0.98]">Protocolar Lançamento</button>
+                <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-[0.98]">
+                    Protocolar Atendimento no SGE
+                </button>
               </form>
             </div>
           )}
 
           {activeTab === 'operacoes' && (
             <div className="max-w-4xl mx-auto space-y-8 animate-in slide-in-from-bottom duration-500">
-              <div className="bg-slate-900 p-8 md:p-12 rounded-[40px] text-white shadow-2xl text-center">
-                <FileType className="mx-auto mb-4 text-rose-400" size={48} />
-                <h3 className="text-2xl font-black mb-6 italic uppercase">Exportação por Unidade</h3>
+              <div className="bg-slate-900 p-10 md:p-14 rounded-[40px] text-white shadow-2xl text-center relative overflow-hidden">
+                <FileType className="mx-auto mb-6 text-blue-400" size={56} />
+                <h3 className="text-3xl font-black mb-2 italic uppercase tracking-tighter leading-none">Exportação Setorial</h3>
+                <p className="text-[11px] text-blue-500 font-black uppercase tracking-widest mb-10">Desenvolvido V-1.0 2026</p>
                 
                 <div className="max-w-xl mx-auto">
-                  <div className="bg-slate-800 p-6 md:p-10 rounded-3xl border border-slate-700 text-center flex flex-col items-center gap-6">
-                    <div className="w-full">
-                      <h4 className="text-xl font-black uppercase text-rose-400 mb-2">Relatório PDF Oficial</h4>
-                      <p className="text-xs text-slate-400 leading-relaxed mx-auto max-w-[300px]">Somente dados da unidade <strong>{currentUser.lotacao}</strong> serão exportados.</p>
-                    </div>
-                    <div className="w-full space-y-6 pt-6 border-t border-slate-700">
-                      <select value={pdfTypeFilter} onChange={(e) => setPdfTypeFilter(e.target.value as PDFFilter)} className="w-full p-4 bg-slate-900 border border-slate-700 rounded-2xl text-sm font-black uppercase outline-none text-white">
-                        <option value="Todos">Todas as Modalidades</option>
-                        <option value="Escolta Operacional">Apenas Escoltas</option>
-                        <option value="Internamento">Apenas Internamentos</option>
-                        <option value="Operação Externa">Apenas Apoios Externos</option>
+                  <div className="bg-slate-800 p-8 md:p-12 rounded-[32px] border border-slate-700 text-center flex flex-col items-center gap-8 shadow-inner">
+                    <div className="w-full space-y-6 pt-6 border-t border-slate-700/50">
+                      <select value={pdfTypeFilter} onChange={(e) => setPdfTypeFilter(e.target.value as PDFFilter)} className="w-full p-4 bg-slate-900 border border-slate-700 rounded-2xl text-sm font-black uppercase outline-none text-white focus:ring-4 focus:ring-blue-500/20">
+                         <option value="Todos">Todas as Categorias</option>
+                         <option value="Escolta Operacional">Escoltas Prisionais</option>
+                         <option value="Internamento">Internamentos Médicos</option>
+                         <option value="Operação Externa">Operações Externas</option>
                       </select>
-                      <button onClick={handleExportPDF} className="w-full py-5 bg-rose-600 rounded-2xl font-black uppercase text-xs shadow-lg hover:bg-rose-500 transition-all flex items-center justify-center gap-3 active:scale-[0.98]">
-                        <FileDown size={20} /> Gerar PDF da Unidade
+                      <button onClick={handleExportPDF} className="w-full py-5 bg-blue-600 rounded-3xl font-black uppercase text-xs shadow-lg hover:bg-blue-500 transition-all flex items-center justify-center gap-3 active:scale-[0.98]">
+                        <FileDown size={22} /> Gerar PDF da Unidade
                       </button>
                     </div>
                   </div>
@@ -833,30 +807,27 @@ const App = () => {
 
           {activeTab === 'seguranca' && (
             <div className="max-w-xl mx-auto space-y-8 animate-in zoom-in duration-500">
-              <div className="bg-white rounded-[40px] p-6 md:p-10 border shadow-sm">
-                <h3 className="text-xl font-black uppercase mb-8 border-b pb-4">Meu Perfil de Acesso</h3>
-                <form onSubmit={handleUpdateProfile} className="space-y-6">
-                  <div>
-                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1 tracking-widest">Nome Funcional</label>
+              <div className="bg-white rounded-[40px] p-8 md:p-12 border shadow-sm text-center">
+                 <p className="text-[10px] font-black text-blue-600 uppercase italic mb-8">SGE PPPG • Desenvolvido V-1.0 2026</p>
+                <h3 className="text-2xl font-black uppercase italic mb-8 border-b pb-4">Perfil Funcional</h3>
+                <form onSubmit={handleUpdateProfile} className="space-y-6 text-left">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 block ml-1 tracking-widest">Nome de Guerra</label>
                     <input value={secFullName} onChange={e => setSecFullName(e.target.value)} placeholder="Seu Nome" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                   </div>
-                  <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl">
-                    <p className="text-[9px] font-black text-blue-400 uppercase mb-1">Unidade Vinculada (Inalterável)</p>
-                    <p className="text-xs font-black text-blue-600 uppercase">{currentUser.lotacao}</p>
+                  <div className="p-5 bg-slate-900 rounded-3xl">
+                    <p className="text-[8px] font-black text-slate-500 uppercase mb-2 tracking-widest">Lotação Bloqueada</p>
+                    <p className="text-sm font-black text-white uppercase flex items-center gap-2 truncate"><Building2 size={16} className="text-blue-500" /> {currentUser.lotacao}</p>
                   </div>
                   <div className="pt-6 border-t border-slate-100">
-                    <h4 className="text-xs font-black uppercase text-slate-400 mb-6 tracking-widest">Alterar Senha</h4>
+                    <h4 className="text-xs font-black uppercase text-slate-400 mb-6 tracking-widest">Mudar Credenciais</h4>
                     <div className="space-y-4">
                       <input type="password" value={secNewPassword} onChange={e => setSecNewPassword(e.target.value)} placeholder="Nova Senha" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                       <input type="password" value={secConfirmPassword} onChange={e => setSecConfirmPassword(e.target.value)} placeholder="Confirmar" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                     </div>
                   </div>
-                  {secStatus && (
-                    <div className={`p-4 rounded-2xl text-xs font-bold ${secStatus.type === 'success' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>
-                      {secStatus.msg}
-                    </div>
-                  )}
-                  <button type="submit" className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl active:scale-[0.98]">Salvar Perfil</button>
+                  {secStatus && <div className={`p-4 rounded-2xl text-xs font-bold ${secStatus.type === 'success' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{secStatus.msg}</div>}
+                  <button type="submit" className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest active:scale-[0.98]">Salvar Alterações</button>
                 </form>
               </div>
             </div>
@@ -864,54 +835,55 @@ const App = () => {
         </div>
       </main>
 
-      {/* FICHA DE ATENDIMENTO */}
+      {/* FICHA MODAL */}
       {detailModalOpen && selectedReg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 bg-slate-900/95 backdrop-blur-xl animate-in fade-in duration-300">
-          <div className="bg-white rounded-[40px] w-full max-w-2xl overflow-hidden shadow-2xl p-6 md:p-10 flex flex-col relative">
-            <button onClick={() => setDetailModalOpen(false)} className="absolute top-6 right-6 p-2 hover:bg-slate-100 rounded-full transition-colors no-print"><X size={24} /></button>
-            <div className="text-center mb-8 border-b pb-6">
-              <h3 className="text-2xl font-black uppercase italic tracking-tighter">Ficha Operacional #{selectedReg.id}</h3>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Unidade: {selectedReg.unidadeOrigem}</p>
+          <div className="bg-white rounded-[40px] w-full max-w-2xl overflow-hidden shadow-2xl p-6 md:p-12 flex flex-col relative">
+            <button onClick={() => setDetailModalOpen(false)} className="absolute top-8 right-8 p-2 hover:bg-slate-100 rounded-full no-print"><X size={28} /></button>
+            <div className="text-center mb-10 border-b pb-8">
+              <h3 className="text-2xl font-black uppercase italic tracking-tighter">Ficha de Atendimento</h3>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Protocolo #{selectedReg.id} • Unidade: {selectedReg.unidadeOrigem}</p>
+              <p className="text-[9px] text-blue-500 font-black mt-2 uppercase italic">Desenvolvido V-1.0 2026</p>
             </div>
-            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-6 pb-4 text-left">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div>
                   <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Custodiado</p>
-                  <p className="text-lg font-black text-slate-900 uppercase">{selectedReg.nomePreso}</p>
-                  <p className="text-xs font-bold text-slate-500 mt-1">Prontuário: {selectedReg.prontuario}</p>
+                  <p className="text-xl font-black text-slate-900 uppercase">{selectedReg.nomePreso}</p>
+                  <p className="text-xs font-bold text-slate-500 mt-1 uppercase italic">Pront: {selectedReg.prontuario}</p>
                 </div>
                 <div>
-                  <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Destino & Agenda</p>
-                  <p className="text-sm font-bold text-slate-800 uppercase">{selectedReg.destino}</p>
-                  <p className="text-[10px] text-slate-500 font-bold mt-1 uppercase">Início: {new Date(selectedReg.dataHora).toLocaleString('pt-BR')}</p>
+                  <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Destino & Hora</p>
+                  <p className="text-sm font-bold text-slate-800 uppercase leading-tight">{selectedReg.destino}</p>
+                  <p className="text-[10px] text-blue-600 font-bold mt-2 uppercase">Início: {new Date(selectedReg.dataHora).toLocaleString('pt-BR')}</p>
                 </div>
               </div>
-              <div className="bg-slate-50 p-6 rounded-3xl border">
-                <p className="text-[9px] font-black text-slate-400 uppercase mb-3">Relato Técnico</p>
-                <p className="text-sm font-medium text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedReg.observacoes || 'Nenhuma observação informada.'}</p>
+              <div className="bg-slate-50 p-8 rounded-[32px] border border-slate-100">
+                <p className="text-[9px] font-black text-slate-400 uppercase mb-4 flex items-center gap-2"><ClipboardList size={14}/> Relato Técnico Oficial</p>
+                <p className="text-sm font-medium text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedReg.observacoes || 'Nenhum detalhe adicional.'}</p>
               </div>
             </div>
-            <button onClick={() => window.print()} className="mt-8 w-full py-5 bg-slate-900 text-white rounded-3xl font-black uppercase flex items-center justify-center gap-3 no-print active:scale-95"><Printer size={20} /> Imprimir Ficha</button>
+            <button onClick={() => window.print()} className="mt-8 w-full py-5 bg-slate-950 text-white rounded-3xl font-black uppercase flex items-center justify-center gap-3 no-print active:scale-95"><Printer size={22} /> Imprimir Registro Oficial</button>
           </div>
         </div>
       )}
 
-      {/* EDIÇÃO */}
+      {/* EDIT MODAL */}
       {isEditing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 bg-slate-900/90 backdrop-blur-xl animate-in zoom-in duration-300">
-          <div className="bg-white rounded-[40px] w-full max-w-2xl overflow-hidden shadow-2xl p-6 md:p-10 flex flex-col">
+          <div className="bg-white rounded-[40px] w-full max-w-2xl overflow-hidden shadow-2xl p-6 md:p-12 flex flex-col">
             <div className="flex justify-between items-center mb-8 border-b pb-4">
-              <h3 className="text-xl font-black uppercase italic">Editar Registro</h3>
-              <button onClick={() => setIsEditing(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={24} /></button>
+              <h3 className="text-xl font-black uppercase italic">Atualizar Dados</h3>
+              <button onClick={() => setIsEditing(null)} className="p-2 hover:bg-slate-100 rounded-full"><X size={28} /></button>
             </div>
             <form onSubmit={handleEditRegistro} className="space-y-6 overflow-y-auto pr-2 custom-scrollbar">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <select name="tipo" defaultValue={isEditing.tipo} className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none">
+                <select name="tipo" defaultValue={isEditing.tipo} className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none focus:ring-4 focus:ring-blue-500/10">
                   <option value="Escolta Operacional">Escolta Operacional</option>
                   <option value="Internamento">Internamento</option>
                   <option value="Operação Externa">Operação Externa</option>
                 </select>
-                <select name="risco" defaultValue={isEditing.risco} className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none">
+                <select name="risco" defaultValue={isEditing.risco} className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none focus:ring-4 focus:ring-blue-500/10">
                   <option value="Baixo">Baixo</option>
                   <option value="Médio">Médio</option>
                   <option value="Alto">Alto</option>
@@ -922,31 +894,34 @@ const App = () => {
                     <input name="prontuario" defaultValue={isEditing.prontuario} placeholder="Prontuário" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                   </>
                 )}
-                <input name="destino" defaultValue={isEditing.destino} placeholder="Destino" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                <input name="destino" defaultValue={isEditing.destino} placeholder="Local Destino" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                 <div className="col-span-1 md:col-span-2">
                   <input type="datetime-local" name="dataHora" defaultValue={isEditing.dataHora.slice(0, 16)} required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
                 </div>
                 <div className="col-span-1 md:col-span-2">
-                   <textarea name="observacoes" defaultValue={isEditing.observacoes} placeholder="Observações" className="w-full p-4 bg-slate-50 border rounded-2xl font-medium outline-none" rows={3} />
+                   <textarea name="observacoes" defaultValue={isEditing.observacoes} placeholder="Detalhamento Técnico" className="w-full p-5 bg-slate-50 border rounded-3xl font-medium outline-none min-h-[120px]" rows={3} />
                 </div>
               </div>
-              <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl active:scale-[0.98]">Atualizar</button>
+              <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl active:scale-[0.98]">Salvar Protocolo</button>
             </form>
           </div>
         </div>
       )}
 
-      <div className="fixed bottom-0 left-0 md:left-64 right-0 p-3 bg-white/60 backdrop-blur-md border-t text-center text-slate-400 text-[10px] font-black uppercase tracking-widest italic z-10 no-print">
-        SGE PPPG • ISOLAMENTO DE DADOS POR UNIDADE • 2026
+      {/* RODAPÉ GERAL */}
+      <div className="fixed bottom-0 left-0 md:left-64 right-0 p-3 bg-white/70 backdrop-blur-md border-t text-center text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] italic z-10 no-print flex flex-col md:flex-row items-center justify-center gap-2">
+        <span>SGE PPPG • PROTOCOLO OPERACIONAL</span>
+        <span className="hidden md:inline">•</span>
+        <span className="text-blue-500 font-black">DESENVOLVIDO V-1.0 2026</span>
       </div>
 
       <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         @keyframes loading-bar { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }
-        .animate-loading-bar { animation: loading-bar 2s infinite ease-in-out; }
+        .animate-loading-bar { animation: loading-bar 1.5s infinite ease-in-out; }
         @media print { 
           .no-print { display: none !important; }
           body { background: white !important; margin: 0; padding: 0; }

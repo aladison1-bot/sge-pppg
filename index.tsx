@@ -37,7 +37,8 @@ import {
   Sparkles,
   BedDouble,
   Activity,
-  FileDown
+  FileDown,
+  FileType
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import QRCode from 'qrcode';
@@ -228,13 +229,11 @@ const App = () => {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
-  const [aiReport, setAiReport] = useState<string | null>(null);
-  const [manualSignature, setManualSignature] = useState('');
   const [qrModalOpen, setQrModalOpen] = useState(false);
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [selectedReg, setSelectedReg] = useState<Registro | null>(null);
   const [isEditing, setIsEditing] = useState<Registro | null>(null);
   const [viewDate, setViewDate] = useState(new Date().toISOString().split('T')[0]);
+  const [showAllDates, setShowAllDates] = useState(false);
   const [newModality, setNewModality] = useState<TipoRegistro>('Escolta Operacional');
   
   // Security State
@@ -306,6 +305,7 @@ const App = () => {
     setRegistros([novo, ...registros]);
     setActiveTab(novo.tipo === 'Internamento' ? 'internamentos' : 'escoltas');
     setViewDate(novo.dataHora.split('T')[0]);
+    setShowAllDates(false);
     e.currentTarget.reset();
   };
 
@@ -349,82 +349,102 @@ const App = () => {
     return registros.filter(r => {
       const lowerSearch = searchTerm.toLowerCase();
       const matchSearch = r.nomePreso.toLowerCase().includes(lowerSearch) || 
-                          r.prontuario.includes(lowerSearch) ||
+                          r.prontuario.toLowerCase().includes(lowerSearch) ||
                           r.risco.toLowerCase().includes(lowerSearch) ||
                           r.status.toLowerCase().includes(lowerSearch);
+      
+      if (showAllDates) return matchSearch;
+
       const matchDate = r.dataHora.startsWith(viewDate);
       return matchSearch && matchDate;
     });
-  }, [registros, searchTerm, viewDate]);
+  }, [registros, searchTerm, viewDate, showAllDates]);
 
-  const generateReport = async () => {
-    if (!manualSignature) return alert("Assine o relatório manualmente.");
-    setIsAiLoading(true);
-    setLoadingMessage("IA gerando resumo operacional diário...");
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    try {
-      const dailyData = filteredBySearchAndDate.map(r => ({
-        Preso: r.nomePreso,
-        Tipo: r.tipo,
-        Destino: r.destino,
-        Quarto: r.quarto || 'N/A',
-        Status: r.status,
-        Horario: r.dataHora
-      }));
-      const prompt = `Gere um resumo simplificado das operações penitenciárias para o dia ${viewDate}. 
-      Baseie-se nestes dados: ${JSON.stringify(dailyData)}. 
-      Apresente em formato de tópicos diretos e técnicos.
-      Assinatura do Policial Responsável: ${manualSignature}
-      Email do Operador: ${userEmail}`;
-      
-      const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
-      setAiReport(response.text);
-    } catch (e) {
-      setAiReport("Erro na geração do resumo de operações.");
-    } finally {
-      setIsAiLoading(false);
-    }
-  };
-
-  const handleDownloadCSV = () => {
+  const handleExportPDF = () => {
     const dailyData = filteredBySearchAndDate;
-    if (dailyData.length === 0) return alert("Nenhum dado para baixar nesta data.");
+    if (dailyData.length === 0) return alert("Nenhum dado para exportar com os filtros atuais.");
 
     const operatorName = secFullName || userEmail;
     const dateNow = new Date().toLocaleString('pt-BR');
-    
-    // CSV Header with Operator info
-    let csvContent = `RELATORIO DE ATENDIMENTOS DIARIOS - SGE PPPG\n`;
-    csvContent += `Data de Referencia: ${viewDate}\n`;
-    csvContent += `Download realizado por: ${operatorName}\n`;
-    csvContent += `Data/Hora do Download: ${dateNow}\n\n`;
-    
-    // Columns
-    csvContent += `TIPO;NOME;PRONTUARIO;DESTINO;QUARTO;RISCO;STATUS;DATA_HORA;OBSERVACOES\n`;
+    const displayDate = showAllDates ? "TODAS AS DATAS" : new Date(viewDate + 'T00:00:00').toLocaleDateString('pt-BR');
 
-    dailyData.forEach(r => {
-      const row = [
-        r.tipo,
-        r.nomePreso,
-        r.prontuario,
-        r.destino,
-        r.quarto || 'N/A',
-        r.risco,
-        r.status,
-        r.dataHora,
-        (r.observacoes || '').replace(/;/g, ',').replace(/\n/g, ' ')
-      ].join(';');
-      csvContent += row + '\n';
-    });
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `SGE_PPPG_OPERACAO_${viewDate}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const htmlContent = `
+      <html>
+        <head>
+          <title>Relatório Operacional - SGE PPPG</title>
+          <style>
+            body { font-family: sans-serif; padding: 40px; color: #1e293b; }
+            header { border-bottom: 2px solid #334155; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-end; }
+            h1 { margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: -1px; }
+            h1 span { color: #2563eb; }
+            .meta { font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th { background: #f1f5f9; text-align: left; padding: 10px; font-size: 10px; text-transform: uppercase; border: 1px solid #e2e8f0; }
+            td { padding: 10px; font-size: 11px; border: 1px solid #e2e8f0; vertical-align: top; }
+            .risco-alto { color: #e11d48; font-weight: bold; }
+            footer { margin-top: 50px; border-top: 1px solid #e2e8f0; pt: 20px; font-size: 9px; text-align: center; color: #94a3b8; }
+            .signature-space { margin-top: 60px; display: flex; justify-content: center; gap: 100px; }
+            .sig-box { border-top: 1px solid #334155; width: 250px; text-align: center; padding-top: 5px; font-size: 10px; font-weight: bold; text-transform: uppercase; }
+          </style>
+        </head>
+        <body>
+          <header>
+            <div>
+              <h1>SGE <span>PPPG</span></h1>
+              <div class="meta">Sistema de Gestão de Escoltas e Internamentos</div>
+            </div>
+            <div style="text-align: right">
+              <div class="meta">Data de Referência: ${displayDate}</div>
+              <div class="meta">Operador: ${operatorName}</div>
+              <div class="meta">Exportado em: ${dateNow}</div>
+            </div>
+          </header>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Preso / Prontuário</th>
+                <th>Destino / Local</th>
+                <th>Risco</th>
+                <th>Status</th>
+                <th>Data/Hora</th>
+                <th>Observações</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${dailyData.map(r => `
+                <tr>
+                  <td>${r.tipo}</td>
+                  <td><strong>${r.nomePreso}</strong><br/>Pront: ${r.prontuario || 'N/A'}</td>
+                  <td>${r.destino}${r.quarto ? `<br/>(Q: ${r.quarto})` : ''}</td>
+                  <td class="${r.risco === 'Alto' ? 'risco-alto' : ''}">${r.risco}</td>
+                  <td>${r.status}</td>
+                  <td>${new Date(r.dataHora).toLocaleString('pt-BR')}</td>
+                  <td>${r.observacoes || '-'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="signature-space">
+            <div class="sig-box">Responsável pelo Preenchimento</div>
+            <div class="sig-box">${operatorName}</div>
+          </div>
+
+          <footer>
+            USO RESTRITO E SIGILOSO - POLÍCIA PENAL PPPG - DOCUMENTO OPERACIONAL
+          </footer>
+          <script>window.onload = () => { window.print(); window.close(); }</script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
   };
 
   const suggestObservations = async (form: HTMLFormElement) => {
@@ -460,7 +480,6 @@ const App = () => {
     const idx = users.findIndex(u => u.email === userEmail);
     if (idx === -1) return;
 
-    // Password Update Logic
     if (secNewPassword) {
       if (secNewPassword !== secConfirmPassword) {
         setSecStatus({ type: 'error', msg: 'Novas senhas não coincidem.' });
@@ -473,7 +492,6 @@ const App = () => {
       users[idx].password = secNewPassword;
     }
 
-    // Profile Update Logic
     users[idx].fullName = secFullName;
     users[idx].lotacao = secLotacao;
     users[idx].setor = secSetor;
@@ -484,11 +502,11 @@ const App = () => {
     setSecConfirmPassword('');
   };
 
-  // Funções de clique no painel
-  const goToEscoltas = () => { setActiveTab('escoltas'); setSearchTerm(''); };
-  const goToInternamentos = () => { setActiveTab('internamentos'); setSearchTerm(''); };
-  const goToAltoRisco = () => { setActiveTab('escoltas'); setSearchTerm('Alto'); };
-  const goToPendentesHoje = () => { setActiveTab('escoltas'); setViewDate(new Date().toISOString().split('T')[0]); setSearchTerm('Pendente'); };
+  // Funções de clique no painel com correção de filtros
+  const goToEscoltas = () => { setActiveTab('escoltas'); setSearchTerm(''); setShowAllDates(true); };
+  const goToInternamentos = () => { setActiveTab('internamentos'); setSearchTerm(''); setShowAllDates(true); };
+  const goToAltoRisco = () => { setActiveTab('escoltas'); setSearchTerm('Alto'); setShowAllDates(true); };
+  const goToPendentesHoje = () => { setActiveTab('escoltas'); setViewDate(new Date().toISOString().split('T')[0]); setSearchTerm('Pendente'); setShowAllDates(false); };
 
   if (!isAuthenticated) return <AuthSystem onLoginSuccess={handleLoginSuccess} />;
 
@@ -506,10 +524,10 @@ const App = () => {
           <button onClick={() => setActiveTab('painel')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'painel' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <LayoutDashboard size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Painel Gestor</span>
           </button>
-          <button onClick={() => setActiveTab('escoltas')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'escoltas' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+          <button onClick={() => { setActiveTab('escoltas'); setShowAllDates(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'escoltas' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <CalendarIcon size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Escoltas</span>
           </button>
-          <button onClick={() => setActiveTab('internamentos')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'internamentos' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+          <button onClick={() => { setActiveTab('internamentos'); setShowAllDates(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'internamentos' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Ambulance size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Internamentos</span>
           </button>
           <button onClick={() => setActiveTab('operacoes')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'operacoes' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
@@ -536,13 +554,28 @@ const App = () => {
           <div className="flex items-center gap-6">
             <h2 className="text-xl font-black text-slate-900 uppercase italic">{activeTab.toUpperCase()}</h2>
             {(activeTab === 'escoltas' || activeTab === 'internamentos' || activeTab === 'operacoes') && (
-              <input type="date" value={viewDate} onChange={e => setViewDate(e.target.value)} className="p-2 bg-slate-100 border rounded-xl text-xs font-black uppercase outline-none" />
+              <div className="flex items-center gap-3">
+                 <input 
+                  type="date" 
+                  value={viewDate} 
+                  onChange={e => { setViewDate(e.target.value); setShowAllDates(false); }} 
+                  className={`p-2 border rounded-xl text-xs font-black uppercase outline-none transition-colors ${showAllDates ? 'bg-slate-100 opacity-50' : 'bg-slate-100'}`} 
+                 />
+                 {showAllDates && (
+                   <button 
+                    onClick={() => setShowAllDates(false)}
+                    className="text-[9px] font-black uppercase text-blue-600 bg-blue-50 px-2 py-1 rounded-lg border border-blue-100 hover:bg-blue-100 transition-all"
+                   >
+                     Exibindo Geral (Limpar)
+                   </button>
+                 )}
+              </div>
             )}
           </div>
           <div className="flex items-center gap-4">
             <div className="relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input type="text" placeholder="Pesquisar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20" />
+              <input type="text" placeholder="Filtrar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20" />
             </div>
           </div>
         </header>
@@ -592,7 +625,7 @@ const App = () => {
           {(activeTab === 'escoltas' || activeTab === 'internamentos') && (
             <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-500">
               <div className="bg-slate-50/50 px-8 py-3 border-b text-[10px] font-black uppercase text-slate-400 tracking-widest flex justify-between items-center">
-                <span>DIA: <span className="text-blue-600">{new Date(viewDate + 'T00:00:00').toLocaleDateString('pt-BR')}</span></span>
+                <span>VISTA: <span className="text-blue-600">{showAllDates ? 'GERAL (TODAS AS DATAS)' : new Date(viewDate + 'T00:00:00').toLocaleDateString('pt-BR')}</span></span>
                 {searchTerm && <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[9px]">Filtro ativo: "{searchTerm}"</span>}
               </div>
               <table className="w-full">
@@ -606,7 +639,7 @@ const App = () => {
                 </thead>
                 <tbody className="divide-y text-sm">
                   {filteredBySearchAndDate.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).length === 0 ? (
-                    <tr><td colSpan={activeTab === 'internamentos' ? 4 : 3} className="py-20 text-center text-slate-400 font-black uppercase tracking-widest opacity-50">Sem registros para esta data ou filtro aplicado.</td></tr>
+                    <tr><td colSpan={activeTab === 'internamentos' ? 4 : 3} className="py-20 text-center text-slate-400 font-black uppercase tracking-widest opacity-50">Sem registros para o filtro selecionado.</td></tr>
                   ) : filteredBySearchAndDate.filter(r => (activeTab === 'escoltas' ? r.tipo !== 'Internamento' : r.tipo === 'Internamento')).map(reg => (
                     <tr key={reg.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-8 py-5">
@@ -614,7 +647,7 @@ const App = () => {
                           <p className="font-bold text-slate-900">{reg.nomePreso}</p>
                           {reg.risco === 'Alto' && <span className="bg-rose-100 text-rose-600 text-[8px] font-black px-1.5 py-0.5 rounded uppercase">Alto Risco</span>}
                         </div>
-                        <p className="text-[10px] text-slate-400 uppercase">PRONT: {reg.prontuario || 'N/A'} • {reg.destino}</p>
+                        <p className="text-[10px] text-slate-400 uppercase">PRONT: {reg.prontuario || 'N/A'} • {reg.destino} {showAllDates && `(${new Date(reg.dataHora).toLocaleDateString()})`}</p>
                       </td>
                       {activeTab === 'internamentos' && (
                         <td className="px-8 py-5">
@@ -714,46 +747,32 @@ const App = () => {
           {activeTab === 'operacoes' && (
             <div className="max-w-4xl mx-auto space-y-8 animate-in slide-in-from-bottom duration-500">
               <div className="bg-slate-900 p-12 rounded-[40px] text-white shadow-2xl text-center">
-                <Bot className="mx-auto mb-4 text-blue-400" size={48} />
-                <h3 className="text-2xl font-black mb-6 italic uppercase">Gerenciar Operações do Dia</h3>
+                <FileType className="mx-auto mb-4 text-rose-400" size={48} />
+                <h3 className="text-2xl font-black mb-6 italic uppercase">Gerenciar Operações</h3>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto mb-8">
-                  <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 text-left flex flex-col justify-between">
+                <div className="max-w-xl mx-auto mb-8">
+                  <div className="bg-slate-800 p-10 rounded-3xl border border-slate-700 text-center flex flex-col items-center gap-6">
                     <div>
-                      <h4 className="text-sm font-black uppercase text-blue-400 mb-2">Resumo com IA</h4>
-                      <p className="text-[10px] text-slate-400 leading-relaxed mb-4">Gera um relatório técnico consolidado usando Inteligência Artificial baseado nos lançamentos da data selecionada.</p>
+                      <h4 className="text-xl font-black uppercase text-rose-400 mb-2">Exportar Atendimentos em PDF</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed">Baixe o documento operacional completo dos atendimentos selecionados. O documento incluirá o cabeçalho oficial e a identificação do operador.</p>
                     </div>
-                    <div className="space-y-4">
-                      <input value={manualSignature} onChange={e => setManualSignature(e.target.value)} placeholder="Assinatura p/ Relatório" className="w-full p-3 bg-slate-900 rounded-xl text-xs outline-none border border-slate-700" />
-                      <button onClick={generateReport} disabled={isAiLoading} className="w-full py-4 bg-blue-600 rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-blue-500 transition-all">
-                        {isAiLoading ? 'Analisando...' : 'Gerar Resumo IA'}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-800 p-6 rounded-3xl border border-slate-700 text-left flex flex-col justify-between">
-                    <div>
-                      <h4 className="text-sm font-black uppercase text-emerald-400 mb-2">Exportar Dados</h4>
-                      <p className="text-[10px] text-slate-400 leading-relaxed mb-4">Baixe a planilha completa de atendimentos desta data. O arquivo incluirá a identificação do operador responsável.</p>
-                    </div>
-                    <div className="space-y-4">
-                      <div className="p-3 bg-slate-900 rounded-xl text-[9px] font-black uppercase text-slate-500 border border-slate-700">
-                        Responsável: {secFullName || userEmail}
+                    
+                    <div className="w-full space-y-4 pt-4 border-t border-slate-700">
+                      <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-500">
+                        <span>Filtro Ativo:</span>
+                        <span className="text-blue-400">{showAllDates ? 'Geral' : viewDate}</span>
                       </div>
-                      <button onClick={handleDownloadCSV} className="w-full py-4 bg-emerald-600 rounded-2xl font-black uppercase text-[10px] shadow-lg hover:bg-emerald-500 transition-all flex items-center justify-center gap-2">
-                        <FileDown size={16} /> Baixar Atendimentos (CSV)
+                      <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-500">
+                        <span>Operador Responsável:</span>
+                        <span className="text-white">{secFullName || userEmail}</span>
+                      </div>
+                      <button onClick={handleExportPDF} className="w-full py-5 bg-rose-600 rounded-2xl font-black uppercase text-xs shadow-lg hover:bg-rose-500 transition-all flex items-center justify-center gap-3">
+                        <FileDown size={20} /> Baixar Relatório Operacional (PDF)
                       </button>
                     </div>
                   </div>
                 </div>
               </div>
-
-              {aiReport && (
-                <div className="bg-white p-12 rounded-[40px] border shadow-xl animate-in zoom-in duration-500 relative">
-                   <button onClick={() => window.print()} className="absolute top-8 right-8 p-3 bg-slate-100 rounded-2xl hover:bg-slate-200 transition-all no-print" title="Imprimir Relatório"><Printer size={20} /></button>
-                   <div className="whitespace-pre-wrap text-sm leading-relaxed font-medium text-slate-700 print:text-xs">{aiReport}</div>
-                </div>
-              )}
             </div>
           )}
 

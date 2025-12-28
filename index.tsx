@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
@@ -117,7 +116,8 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
   const getUsers = (): UserProfile[] => {
     const data = localStorage.getItem('sge_users_db_v2');
     if (!data) {
-      const defaultUsers: UserProfile[] = [{ email: 'admin@pppg.gov.br', password: '123', isTemporary: true, lotacao: 'Administração Central' }];
+      // Atualizado para o email solicitado pelo usuário
+      const defaultUsers: UserProfile[] = [{ email: 'aladison@policiapenal.pr.gov.br', password: '123', isTemporary: true, lotacao: 'Administração Central' }];
       localStorage.setItem('sge_users_db_v2', JSON.stringify(defaultUsers));
       return defaultUsers;
     }
@@ -205,7 +205,7 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Email Funcional</label>
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" placeholder="ex: admin@pppg.gov.br" autoCapitalize="none" />
+              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" placeholder="ex: seuemail@policiapenal.pr.gov.br" autoCapitalize="none" />
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Senha</label>
@@ -215,6 +215,7 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
               {loading ? <Loader2 className="animate-spin" size={18} /> : <LogIn size={18} />}
               Entrar no Sistema
             </button>
+            <p className="text-[10px] text-slate-400 text-center">Para o primeiro acesso do administrador, utilize a senha padrão 123.</p>
           </form>
         )}
 
@@ -224,13 +225,14 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Setor de Atuação</label>
               <select value={selectedUnit} onChange={(e) => setSelectedUnit(e.target.value as UnidadeEscopo)} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none text-sm uppercase">
+                <option value="Administração Central">Administração Central</option>
                 <option value="Cadeias Públicas">Cadeias Públicas</option>
                 <option value="Setor de Escolta Prisional">Setor de Escolta Prisional</option>
                 <option value="Setor de Operações Especiais">Setor de Operações Especiais</option>
               </select>
             </div>
-            <input type="password" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Definir Senha" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
-            <input type="password" required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirmar Senha" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+            <input type="password" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Definir Nova Senha" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+            <input type="password" required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirmar Nova Senha" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
             <button type="submit" disabled={loading} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-[0.98]">Concluir Primeiro Acesso</button>
           </form>
         )}
@@ -253,9 +255,7 @@ const App = () => {
     return saved ? JSON.parse(saved) : INITIAL_DATA;
   });
 
-  // Admin unit filter (Contexto de Visão)
   const [adminContext, setAdminContext] = useState<UnidadeEscopo | 'Global'>('Global');
-
   const [searchTerm, setSearchTerm] = useState('');
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
@@ -268,13 +268,11 @@ const App = () => {
   const [pdfTypeFilter, setPdfTypeFilter] = useState<PDFFilter>('Todos');
   const [isGeneratingObs, setIsGeneratingObs] = useState(false);
 
-  // Fix: Added missing state variables for profile management
   const [secFullName, setSecFullName] = useState('');
   const [secNewPassword, setSecNewPassword] = useState('');
   const [secConfirmPassword, setSecConfirmPassword] = useState('');
   const [secStatus, setSecStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
-  // Fix: Sync profile name when user is loaded
   useEffect(() => {
     if (currentUser) {
       setSecFullName(currentUser.fullName || '');
@@ -312,17 +310,12 @@ const App = () => {
     localStorage.removeItem('sge_auth_v1');
   };
 
-  // --- FILTRAGEM RIGOROSA POR UNIDADE ---
   const registrosDaUnidade = useMemo(() => {
     if (!currentUser) return [];
-    
-    // Perfil Administrador: Vê conforme o filtro context selecionado ou tudo (Global)
     if (currentUser.lotacao === 'Administração Central') {
       if (adminContext === 'Global') return registros;
       return registros.filter(r => r.unidadeOrigem === adminContext);
     }
-    
-    // Perfis Setoriais: Veem APENAS o que produziram/pertence à sua unidade
     return registros.filter(r => r.unidadeOrigem === currentUser.lotacao);
   }, [registros, currentUser, adminContext]);
 
@@ -334,7 +327,6 @@ const App = () => {
                           r.destino.toLowerCase().includes(lowerSearch) ||
                           r.status.toLowerCase().includes(lowerSearch) ||
                           r.tipo.toLowerCase().includes(lowerSearch);
-      
       if (showAllDates) return matchSearch;
       return matchSearch && r.dataHora.startsWith(viewDate);
     });

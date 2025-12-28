@@ -1,0 +1,5 @@
+{
+  "description": "Sistema de Gestão de Escoltas e Internamentos Penitenciários (SGE PPPG) com análise de risco via IA Gemini.",
+  "requestFramePermissions": [],
+  "name": "SGE PPPG - Escoltas & Internamentos"
+}

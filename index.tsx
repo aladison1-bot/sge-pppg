@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
@@ -46,7 +47,8 @@ import {
   MapPin,
   Shield,
   Layers,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Users
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
@@ -116,7 +118,6 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
   const getUsers = (): UserProfile[] => {
     const data = localStorage.getItem('sge_users_db_v3');
     if (!data) {
-      // Definido o email solicitado pelo usuário como Administrador Mestre
       const defaultUsers: UserProfile[] = [{ 
         email: 'aladison@policiapenal.pr.gov.br', 
         password: '123', 
@@ -151,6 +152,7 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
 
       if (user && inputPassword === user.password) {
         if (user.isTemporary) {
+          if (user.lotacao) setSelectedUnit(user.lotacao);
           setView('change-password');
         } else {
           onLoginSuccess(user);
@@ -176,12 +178,15 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
 
     setLoading(true);
     setTimeout(() => {
+      const users = getUsers();
+      const existingUser = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+      
       const updatedUser: UserProfile = { 
         email: email.trim().toLowerCase(), 
         password: cleanNew, 
         isTemporary: false,
-        lotacao: selectedUnit,
-        fullName: email.split('@')[0].toUpperCase()
+        lotacao: existingUser?.lotacao || selectedUnit,
+        fullName: existingUser?.fullName || email.split('@')[0].toUpperCase()
       };
       saveUser(updatedUser);
       onLoginSuccess(updatedUser);
@@ -216,7 +221,7 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
                 value={email} 
                 onChange={(e) => setEmail(e.target.value)} 
                 className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" 
-                placeholder="ex: aladison@policiapenal.pr.gov.br" 
+                placeholder="ex: agente@policiapenal.pr.gov.br" 
                 autoCapitalize="none" 
               />
             </div>
@@ -235,10 +240,6 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
               {loading ? <Loader2 className="animate-spin" size={18} /> : <LogIn size={18} />}
               Entrar no Portal
             </button>
-            <div className="text-center">
-              <p className="text-[10px] text-slate-400">Admin: aladison@policiapenal.pr.gov.br</p>
-              <p className="text-[10px] text-slate-400">Senha Padrão: 123</p>
-            </div>
           </form>
         )}
 
@@ -246,8 +247,13 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
           <form onSubmit={handleChangePassword} className="space-y-6">
             <p className="text-[10px] text-blue-600 font-black uppercase text-center mb-4">Configuração Final de Credenciais</p>
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Vínculo de Lotação</label>
-              <select value={selectedUnit} onChange={(e) => setSelectedUnit(e.target.value as UnidadeEscopo)} className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none text-sm uppercase">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block ml-1">Vínculo de Lotação (Confirmar)</label>
+              <select 
+                value={selectedUnit} 
+                onChange={(e) => setSelectedUnit(e.target.value as UnidadeEscopo)} 
+                className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none text-sm uppercase"
+                disabled={email.toLowerCase() === 'aladison@policiapenal.pr.gov.br'}
+              >
                 <option value="Administração Central">Administração Central</option>
                 <option value="Cadeias Públicas">Cadeias Públicas</option>
                 <option value="Setor de Escolta Prisional">Setor de Escolta Prisional</option>
@@ -272,7 +278,7 @@ const AuthSystem = ({ onLoginSuccess }: { onLoginSuccess: (user: UserProfile) =>
 const App = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [activeTab, setActiveTab] = useState<'painel' | 'escoltas' | 'internamentos' | 'operacoes' | 'novo' | 'seguranca'>('painel');
+  const [activeTab, setActiveTab] = useState<'painel' | 'escoltas' | 'internamentos' | 'operacoes' | 'novo' | 'seguranca' | 'usuarios'>('painel');
   const [registros, setRegistros] = useState<Registro[]>(() => {
     const saved = localStorage.getItem('sge_data_v1.0_2026');
     return saved ? JSON.parse(saved) : INITIAL_DATA;
@@ -291,16 +297,29 @@ const App = () => {
   const [pdfTypeFilter, setPdfTypeFilter] = useState<PDFFilter>('Todos');
   const [isGeneratingObs, setIsGeneratingObs] = useState(false);
 
+  const [editType, setEditType] = useState<TipoRegistro>('Escolta Operacional');
+
   const [secFullName, setSecFullName] = useState('');
   const [secNewPassword, setSecNewPassword] = useState('');
   const [secConfirmPassword, setSecConfirmPassword] = useState('');
   const [secStatus, setSecStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+
+  const [usersList, setUsersList] = useState<UserProfile[]>([]);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserUnit, setNewUserUnit] = useState<UnidadeEscopo>('Cadeias Públicas');
 
   useEffect(() => {
     if (currentUser) {
       setSecFullName(currentUser.fullName || '');
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (isEditing) {
+      setEditType(isEditing.tipo);
+    }
+  }, [isEditing]);
 
   useEffect(() => {
     const savedAuth = localStorage.getItem('sge_auth_v1');
@@ -318,6 +337,13 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    if (activeTab === 'usuarios') {
+      const data = localStorage.getItem('sge_users_db_v3');
+      if (data) setUsersList(JSON.parse(data));
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
     localStorage.setItem('sge_data_v1.0_2026', JSON.stringify(registros));
   }, [registros]);
 
@@ -333,14 +359,12 @@ const App = () => {
     localStorage.removeItem('sge_auth_v1');
   };
 
-  // ISOLAMENTO DE DADOS: Administrador vê tudo ou filtra, usuários veem apenas sua unidade
   const registrosExibiveis = useMemo(() => {
     if (!currentUser) return [];
     if (currentUser.lotacao === 'Administração Central') {
       if (adminContext === 'Global') return registros;
       return registros.filter(r => r.unidadeOrigem === adminContext);
     }
-    // RIGOROSO: Retorna apenas o que pertence à unidade do usuário logado
     return registros.filter(r => r.unidadeOrigem === currentUser.lotacao);
   }, [registros, currentUser, adminContext]);
 
@@ -371,8 +395,8 @@ const App = () => {
     const dataHora = formData.get('dataHora') as string;
     const risco = formData.get('risco') as Risco;
     const observacoes = formData.get('observacoes') as string || '';
+    const dataAltaMedica = formData.get('dataAltaMedica') as string || undefined;
 
-    // Unidade de origem é automática baseada na lotação do usuário, ou selecionada pelo admin
     const unidadeAlocada: UnidadeEscopo = currentUser.lotacao === 'Administração Central' 
       ? (adminContext === 'Global' ? 'Cadeias Públicas' : adminContext) 
       : currentUser.lotacao!;
@@ -389,7 +413,8 @@ const App = () => {
       observacoes,
       unidadeOrigem: unidadeAlocada,
       createdBy: currentUser.email,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      dataAltaMedica
     };
     
     setLoadingMessage("Protocolando Protocolo SGE...");
@@ -409,18 +434,98 @@ const App = () => {
     e.preventDefault();
     if (!isEditing) return;
     const formData = new FormData(e.currentTarget);
-    const updated = registros.map(r => r.id === isEditing.id ? {
-      ...r,
-      tipo: formData.get('tipo') as TipoRegistro,
-      nomePreso: formData.get('nomePreso') as string || r.nomePreso,
-      prontuario: formData.get('prontuario') as string || r.prontuario,
-      destino: formData.get('destino') as string || r.destino,
-      dataHora: formData.get('dataHora') as string || r.dataHora,
-      risco: formData.get('risco') as Risco,
-      observacoes: formData.get('observacoes') as string || r.observacoes,
-    } : r);
-    setRegistros(updated);
-    setIsEditing(null);
+    
+    const tipoInput = editType;
+    const nomeInput = tipoInput === 'Operação Externa' ? '-' : (formData.get('nomePreso') as string);
+    const prontuarioInput = tipoInput === 'Operação Externa' ? '-' : (formData.get('prontuario') as string);
+    const destinoInput = formData.get('destino') as string;
+    const dataHoraInput = formData.get('dataHora') as string;
+    const riscoInput = formData.get('risco') as Risco;
+    const obsInput = formData.get('observacoes') as string;
+    const dataAltaMedicaInput = formData.get('dataAltaMedica') as string || undefined;
+
+    setLoadingMessage("Atualizando Registro...");
+    setIsActionLoading(true);
+
+    setTimeout(() => {
+      setRegistros(prev => prev.map(r => r.id === isEditing.id ? {
+        ...r,
+        tipo: tipoInput,
+        nomePreso: nomeInput,
+        prontuario: prontuarioInput,
+        destino: destinoInput,
+        dataHora: dataHoraInput,
+        risco: riscoInput,
+        observacoes: obsInput,
+        dataAltaMedica: dataAltaMedicaInput
+      } : r));
+      setIsActionLoading(false);
+      setIsEditing(null);
+    }, 500);
+  };
+
+  const deleteRegistro = (id: string) => {
+    if (window.confirm("Deseja realmente excluir este protocolo definitivamente?")) {
+      setLoadingMessage("Excluindo Registro...");
+      setIsActionLoading(true);
+      setTimeout(() => {
+        setRegistros(prev => prev.filter(r => r.id !== id));
+        setIsActionLoading(false);
+      }, 500);
+    }
+  };
+
+  const zerarBaseDados = () => {
+    if (window.confirm("ALERTA CRÍTICO: Esta ação apagará TODOS os registros de TODOS os setores definitivamente. Confirmar limpeza total?")) {
+      setLoadingMessage("Limpando Base de Dados...");
+      setIsActionLoading(true);
+      setTimeout(() => {
+        setRegistros([]);
+        setIsActionLoading(false);
+      }, 1000);
+    }
+  };
+
+  const handleAddUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserEmail.includes('@policiapenal.pr.gov.br')) {
+      alert("Email deve ser institucional (.policiapenal.pr.gov.br)");
+      return;
+    }
+
+    const newUser: UserProfile = {
+      email: newUserEmail.toLowerCase().trim(),
+      fullName: newUserName.toUpperCase().trim(),
+      lotacao: newUserUnit,
+      password: '123',
+      isTemporary: true
+    };
+
+    const usersData = localStorage.getItem('sge_users_db_v3');
+    const users: UserProfile[] = usersData ? JSON.parse(usersData) : [];
+    
+    if (users.find(u => u.email === newUser.email)) {
+      alert("Este email já está cadastrado no sistema.");
+      return;
+    }
+
+    users.push(newUser);
+    localStorage.setItem('sge_users_db_v3', JSON.stringify(users));
+    setUsersList(users);
+    setNewUserEmail('');
+    setNewUserName('');
+    alert("Operador cadastrado com sucesso. Senha inicial: 123");
+  };
+
+  const deleteUser = (email: string) => {
+    if (email === 'aladison@policiapenal.pr.gov.br') return alert("Não é possível excluir o Administrador Mestre.");
+    if (window.confirm("Deseja remover este acesso permanentemente?")) {
+      const usersData = localStorage.getItem('sge_users_db_v3');
+      const users: UserProfile[] = usersData ? JSON.parse(usersData) : [];
+      const updated = users.filter(u => u.email !== email);
+      localStorage.setItem('sge_users_db_v3', JSON.stringify(updated));
+      setUsersList(updated);
+    }
   };
 
   const updateStatus = (id: string, newStatus: Status) => {
@@ -526,6 +631,8 @@ const App = () => {
 
   if (!isAuthenticated || !currentUser) return <AuthSystem onLoginSuccess={handleLoginSuccess} />;
 
+  const isAdmin = currentUser.lotacao === 'Administração Central';
+
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-900">
       {isActionLoading && <LoadingOverlay message={loadingMessage} />}
@@ -554,6 +661,12 @@ const App = () => {
             <Activity size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Relatórios</span>
           </button>
           
+          {isAdmin && (
+            <button onClick={() => setActiveTab('usuarios')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all ${activeTab === 'usuarios' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800'}`}>
+              <Users size={18} /> <span className="text-sm font-black uppercase tracking-tighter">Usuários</span>
+            </button>
+          )}
+
           <div className="pt-6">
             <button onClick={() => setActiveTab('novo')} className="w-full flex items-center justify-center gap-3 px-4 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 font-black text-[10px] uppercase tracking-widest shadow-xl transition-all active:scale-[0.98]">
               <PlusCircle size={18} /> Novo Atendimento
@@ -593,19 +706,36 @@ const App = () => {
           {activeTab === 'painel' && (
             <div className="max-w-5xl mx-auto space-y-10 animate-in fade-in duration-500">
               
-              {/* SELETOR DE CONTEXTO PARA ADMINISTRADOR */}
-              {currentUser.lotacao === 'Administração Central' && (
-                <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm space-y-4">
-                   <div className="flex items-center gap-3">
-                      <ArrowRightLeft className="text-blue-600" size={20} />
-                      <h4 className="text-xs font-black uppercase tracking-widest text-slate-500 leading-none">ADMIN: Alternar Visão de Unidade</h4>
-                   </div>
-                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                      <button onClick={() => setAdminContext('Global')} className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest border transition-all ${adminContext === 'Global' ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-50 text-slate-500'}`}>Global</button>
-                      <button onClick={() => setAdminContext('Cadeias Públicas')} className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest border transition-all ${adminContext === 'Cadeias Públicas' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-500'}`}>Cadeias</button>
-                      <button onClick={() => setAdminContext('Setor de Escolta Prisional')} className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest border transition-all ${adminContext === 'Setor de Escolta Prisional' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-500'}`}>Escolta</button>
-                      <button onClick={() => setAdminContext('Setor de Operações Especiais')} className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest border transition-all ${adminContext === 'Setor de Operações Especiais' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-500'}`}>S.O.E.</button>
-                   </div>
+              {isAdmin && (
+                <div className="space-y-6">
+                  <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm space-y-4">
+                     <div className="flex items-center gap-3">
+                        <ArrowRightLeft className="text-blue-600" size={20} />
+                        <h4 className="text-xs font-black uppercase tracking-widest text-slate-500 leading-none">ADMIN: Alternar Visão de Unidade</h4>
+                     </div>
+                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                        <button onClick={() => setAdminContext('Global')} className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest border transition-all ${adminContext === 'Global' ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-50 text-slate-500'}`}>Global</button>
+                        <button onClick={() => setAdminContext('Cadeias Públicas')} className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest border transition-all ${adminContext === 'Cadeias Públicas' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-500'}`}>Cadeias</button>
+                        <button onClick={() => setAdminContext('Setor de Escolta Prisional')} className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest border transition-all ${adminContext === 'Setor de Escolta Prisional' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-500'}`}>Escolta</button>
+                        <button onClick={() => setAdminContext('Setor de Operações Especiais')} className={`py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest border transition-all ${adminContext === 'Setor de Operações Especiais' ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-500'}`}>S.O.E.</button>
+                     </div>
+                  </div>
+
+                  <div className="bg-rose-50 p-6 rounded-[32px] border border-rose-100 space-y-4 shadow-sm">
+                    <div className="flex items-center gap-3">
+                        <AlertTriangle className="text-rose-600" size={20} />
+                        <h4 className="text-xs font-black uppercase tracking-widest text-rose-600 leading-none">Ações Críticas do Administrador</h4>
+                    </div>
+                    <div className="flex flex-wrap gap-4">
+                      <button 
+                        onClick={zerarBaseDados}
+                        className="px-6 py-4 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-rose-700 transition-all flex items-center gap-2 shadow-lg shadow-rose-200 active:scale-95 animate-pulse"
+                      >
+                        <Trash2 size={16} /> Zerar Todos os Atendimentos do Site
+                      </button>
+                      <p className="text-[9px] text-rose-400 font-bold uppercase italic flex items-center">Esta ação é irreversível e apaga dados de todos os perfis.</p>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -693,6 +823,9 @@ const App = () => {
                           <div className="flex justify-end gap-1">
                             <button onClick={() => setIsEditing(reg)} className="p-3 text-amber-500 hover:bg-amber-50 rounded-2xl transition-all" title="Editar"><Edit3 size={18} /></button>
                             <button onClick={() => { setSelectedReg(reg); setDetailModalOpen(true); }} className="p-3 text-blue-600 hover:bg-blue-50 rounded-2xl transition-all" title="Ver Ficha"><Eye size={18} /></button>
+                            {isAdmin && (
+                              <button onClick={() => deleteRegistro(reg.id)} className="p-3 text-rose-500 hover:bg-rose-50 rounded-2xl transition-all shadow-sm" title="Apagar Registro (Admin)"><Trash2 size={18} /></button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -755,10 +888,16 @@ const App = () => {
                   </div>
 
                   {newModality === 'Internamento' && (
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-blue-600 block ml-1 tracking-widest flex items-center gap-1"><BedDouble size={12}/> Quarto/Leito</label>
-                      <input name="quarto" placeholder="Ex: Q. 101 / L. 02" className="w-full p-4 bg-blue-50 border border-blue-100 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-blue-500/10" />
-                    </div>
+                    <>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-blue-600 block ml-1 tracking-widest flex items-center gap-1"><BedDouble size={12}/> Quarto/Leito</label>
+                        <input name="quarto" placeholder="Ex: Q. 101 / L. 02" className="w-full p-4 bg-blue-50 border border-blue-100 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-blue-500/10" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-emerald-600 block ml-1 tracking-widest flex items-center gap-1"><ClipboardCheck size={12}/> Data da Alta Médica</label>
+                        <input type="date" name="dataAltaMedica" className="w-full p-4 bg-emerald-50 border border-emerald-100 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-emerald-500/10" />
+                      </div>
+                    </>
                   )}
 
                   <div className="col-span-1 md:col-span-2">
@@ -810,6 +949,94 @@ const App = () => {
             </div>
           )}
 
+          {activeTab === 'usuarios' && isAdmin && (
+            <div className="max-w-4xl mx-auto space-y-10 animate-in zoom-in duration-500">
+              <div className="bg-white rounded-[40px] p-8 md:p-12 border shadow-2xl">
+                <div className="flex items-center gap-3 mb-8 border-b pb-4">
+                  <Users className="text-blue-600" size={24} />
+                  <h3 className="text-2xl font-black uppercase italic">Gestão de Usuários PPPG</h3>
+                </div>
+
+                <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10 bg-slate-50 p-6 rounded-3xl border border-slate-100">
+                  <div className="md:col-span-3 mb-2">
+                    <p className="text-[10px] font-black uppercase text-blue-600 tracking-widest">Cadastrar Novo Operador</p>
+                  </div>
+                  <input 
+                    type="text" 
+                    placeholder="Nome de Guerra" 
+                    value={newUserName}
+                    onChange={e => setNewUserName(e.target.value)}
+                    required 
+                    className="p-4 rounded-2xl border font-bold text-sm outline-none focus:ring-4 focus:ring-blue-500/10" 
+                  />
+                  <input 
+                    type="email" 
+                    placeholder="Email Institucional" 
+                    value={newUserEmail}
+                    onChange={e => setNewUserEmail(e.target.value)}
+                    required 
+                    className="p-4 rounded-2xl border font-bold text-sm outline-none focus:ring-4 focus:ring-blue-500/10" 
+                  />
+                  <select 
+                    value={newUserUnit} 
+                    onChange={e => setNewUserUnit(e.target.value as UnidadeEscopo)}
+                    className="p-4 rounded-2xl border font-black text-[10px] uppercase outline-none focus:ring-4 focus:ring-blue-500/10"
+                  >
+                    <option value="Cadeias Públicas">Cadeias Públicas</option>
+                    <option value="Setor de Escolta Prisional">Escolta Prisional</option>
+                    <option value="Setor de Operações Especiais">S.O.E.</option>
+                    <option value="Administração Central">Admin Central</option>
+                  </select>
+                  <button type="submit" className="md:col-span-3 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest active:scale-95 transition-all">
+                    Liberar Acesso no SGE
+                  </button>
+                </form>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="text-[10px] font-black text-slate-400 uppercase text-left">
+                      <tr>
+                        <th className="pb-4 px-2">Operador</th>
+                        <th className="pb-4 px-2">Unidade/Escopo</th>
+                        <th className="pb-4 px-2">Status</th>
+                        <th className="pb-4 px-2 text-right">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y text-sm">
+                      {usersList.map(u => (
+                        <tr key={u.email} className="hover:bg-slate-50 transition-colors">
+                          <td className="py-4 px-2">
+                            <p className="font-bold text-slate-900">{u.fullName}</p>
+                            <p className="text-[10px] text-slate-400">{u.email}</p>
+                          </td>
+                          <td className="py-4 px-2">
+                            <span className="text-[10px] font-black uppercase bg-blue-50 text-blue-600 px-2 py-1 rounded-lg border border-blue-100">{u.lotacao}</span>
+                          </td>
+                          <td className="py-4 px-2 text-[10px] font-black">
+                            {u.isTemporary ? (
+                              <span className="text-amber-600 flex items-center gap-1"><Clock size={12}/> Pendente Setup</span>
+                            ) : (
+                              <span className="text-emerald-600 flex items-center gap-1"><CheckCircle size={12}/> Ativo</span>
+                            )}
+                          </td>
+                          <td className="py-4 px-2 text-right">
+                            <button 
+                              onClick={() => deleteUser(u.email)} 
+                              className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
+                              disabled={u.email === 'aladison@policiapenal.pr.gov.br'}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'seguranca' && (
             <div className="max-w-xl mx-auto space-y-8 animate-in zoom-in duration-500">
               <div className="bg-white rounded-[40px] p-8 md:p-12 border shadow-sm text-center">
@@ -844,7 +1071,7 @@ const App = () => {
       {detailModalOpen && selectedReg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 bg-slate-900/95 backdrop-blur-xl animate-in fade-in duration-300">
           <div className="bg-white rounded-[40px] w-full max-w-2xl overflow-hidden shadow-2xl p-6 md:p-12 flex flex-col relative">
-            <button onClick={() => setDetailModalOpen(false)} className="absolute top-8 right-8 p-2 hover:bg-slate-100 rounded-full no-print"><X size={28} /></button>
+            <button onClick={() => setDetailModalOpen(false)} className="absolute top-8 right-8 p-2 hover:bg-slate-100 rounded-full no-print transition-colors"><X size={28} /></button>
             <div className="text-center mb-10 border-b pb-8">
               <h3 className="text-2xl font-black uppercase italic tracking-tighter">Ficha de Protocolo SGE</h3>
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">ID: {selectedReg.id} | Unidade Emissora: {selectedReg.unidadeOrigem}</p>
@@ -861,6 +1088,9 @@ const App = () => {
                   <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Itinerário & Agenda</p>
                   <p className="text-sm font-bold text-slate-800 uppercase leading-tight">{selectedReg.destino}</p>
                   <p className="text-[10px] text-blue-600 font-bold mt-2 uppercase">Início: {new Date(selectedReg.dataHora).toLocaleString('pt-BR')}</p>
+                  {selectedReg.dataAltaMedica && (
+                    <p className="text-[10px] text-emerald-600 font-black mt-2 uppercase">Alta Médica: {new Date(selectedReg.dataAltaMedica + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
+                  )}
                 </div>
               </div>
               <div className="bg-slate-50 p-8 rounded-[32px] border border-slate-100">
@@ -873,7 +1103,74 @@ const App = () => {
         </div>
       )}
 
-      {/* RODAPÉ FIXO DE VERSIONAMENTO */}
+      {/* MODAL DE EDIÇÃO */}
+      {isEditing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 bg-slate-900/90 backdrop-blur-xl animate-in zoom-in duration-300">
+          <div className="bg-white rounded-[40px] w-full max-w-2xl overflow-hidden shadow-2xl p-6 md:p-12 flex flex-col relative">
+            <div className="flex justify-between items-center mb-8 border-b pb-4">
+              <h3 className="text-xl font-black uppercase italic">Atualizar Dados do Protocolo</h3>
+              <button onClick={() => setIsEditing(null)} className="p-2 hover:bg-slate-100 rounded-full transition-all"><X size={28} /></button>
+            </div>
+            <form onSubmit={handleEditRegistro} className="space-y-6 overflow-y-auto pr-2 custom-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-[9px] font-black uppercase text-slate-400 block ml-1 tracking-widest">Modalidade</label>
+                  <select 
+                    name="tipo" 
+                    value={editType} 
+                    onChange={e => setEditType(e.target.value as TipoRegistro)}
+                    className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
+                  >
+                    <option value="Escolta Operacional">Escolta Operacional</option>
+                    <option value="Internamento">Internamento Hospitalar</option>
+                    <option value="Operação Externa">Operação de Apoio/Externa</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[9px] font-black uppercase text-slate-400 block ml-1 tracking-widest">Nível de Risco</label>
+                  <select name="risco" defaultValue={isEditing.risco} className="w-full p-4 bg-slate-50 border rounded-2xl font-black text-xs uppercase outline-none focus:ring-4 focus:ring-blue-500/10 transition-all">
+                    <option value="Baixo">Verde - Baixo</option>
+                    <option value="Médio">Amarelo - Médio</option>
+                    <option value="Alto">Vermelho - Alto</option>
+                  </select>
+                </div>
+                {editType !== 'Operação Externa' && (
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black uppercase text-slate-400 block ml-1 tracking-widest">Identificação Nominal</label>
+                      <input name="nomePreso" defaultValue={isEditing.nomePreso === '-' ? '' : isEditing.nomePreso} placeholder="Nome do Preso" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black uppercase text-slate-400 block ml-1 tracking-widest">Nº Prontuário</label>
+                      <input name="prontuario" defaultValue={isEditing.prontuario === '-' ? '' : isEditing.prontuario} placeholder="Prontuário" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                    </div>
+                  </>
+                )}
+                {editType === 'Internamento' && (
+                   <div className="space-y-2">
+                    <label className="text-[9px] font-black uppercase text-emerald-600 block ml-1 tracking-widest">Data da Alta Médica</label>
+                    <input type="date" name="dataAltaMedica" defaultValue={isEditing.dataAltaMedica} className="w-full p-4 bg-emerald-50 border border-emerald-100 rounded-2xl font-bold outline-none" />
+                  </div>
+                )}
+                <div className="col-span-1 md:col-span-2 space-y-2">
+                  <label className="text-[9px] font-black uppercase text-slate-400 block ml-1 tracking-widest">Local de Destino</label>
+                  <input name="destino" defaultValue={isEditing.destino} placeholder="Local Destino" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                </div>
+                <div className="col-span-1 md:col-span-2 space-y-2">
+                  <label className="text-[9px] font-black uppercase text-slate-400 block ml-1 tracking-widest">Programação Horária</label>
+                  <input type="datetime-local" name="dataHora" defaultValue={isEditing.dataHora.slice(0, 16)} required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold outline-none" />
+                </div>
+                <div className="col-span-1 md:col-span-2 space-y-2">
+                   <label className="text-[9px] font-black uppercase text-slate-400 block ml-1 tracking-widest">Relato Técnico</label>
+                   <textarea name="observacoes" defaultValue={isEditing.observacoes} placeholder="Detalhamento Técnico" className="w-full p-5 bg-slate-50 border rounded-3xl font-medium outline-none min-h-[120px]" rows={3} />
+                </div>
+              </div>
+              <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-blue-700 transition-all active:scale-[0.98]">Salvar Protocolo Atualizado</button>
+            </form>
+          </div>
+        </div>
+      )}
+
       <div className="fixed bottom-0 left-0 md:left-64 right-0 p-3 bg-white/70 backdrop-blur-md border-t text-center text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] italic z-10 no-print flex flex-col md:flex-row items-center justify-center gap-2">
         <span>SGE PPPG • SISTEMA DE MOVIMENTAÇÃO PRISIONAL</span>
         <span className="hidden md:inline">•</span>

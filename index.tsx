@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
+// Fix: Added missing Activity icon import from lucide-react
 import { 
   LayoutDashboard, 
   ShieldAlert, 
@@ -18,13 +19,9 @@ import {
   CheckCircle, 
   Edit3, 
   AlertTriangle, 
-  Settings, 
-  Activity, 
   Download, 
   Eye, 
   Clock, 
-  MapPin, 
-  ArrowRightLeft, 
   Users, 
   History, 
   UserCog, 
@@ -32,18 +29,16 @@ import {
   Menu, 
   ChevronDown,
   UserCheck,
-  UserX,
   MessageSquareQuote,
   Bell,
-  User,
-  ShieldCheck,
   FileText,
   Filter,
   Database,
   Wifi,
   Stethoscope,
   Archive,
-  Save
+  Save,
+  Activity
 } from 'lucide-react';
 
 // --- Types ---
@@ -807,7 +802,7 @@ const App = () => {
                   <div>
                     <p className="text-sm font-black text-blue-900 uppercase italic mb-1">Atenção Administrador</p>
                     <p className="text-[11px] font-bold text-blue-700 uppercase leading-relaxed tracking-wider">
-                      O expurgo de dados é IRREVERSÍVEL. Certifique-se de que o arquivo de backup foi baixado e verificado antes de proceder com a limpeza trimestral.
+                      O expurgo de dados é IRREVERSÍVEL. Certifique-se de que o arquivo de backup foi baixado e verificado antes de proceder with a limpeza trimestral.
                     </p>
                   </div>
                 </div>

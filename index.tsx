@@ -37,7 +37,9 @@ import {
   Archive,
   Save,
   Activity,
-  UserPlus
+  UserPlus,
+  KeyRound,
+  ShieldCheck
 } from 'lucide-react';
 
 // --- Types ---
@@ -91,6 +93,7 @@ interface AuditLog {
 }
 
 const INITIAL_DATA: Registro[] = [];
+const TEMP_PASSWORD_DEFAULT = 'deppen2026';
 
 // --- Components ---
 const LoadingOverlay = ({ message }: { message: string }) => (
@@ -114,10 +117,13 @@ const LoadingOverlay = ({ message }: { message: string }) => (
 const AuthSystem = ({ onLoginSuccess, registerLog }: { onLoginSuccess: (user: UserProfile) => void, registerLog: (action: string, details: string, cat: AuditLog['category'], unit?: string) => void }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFirstAccess, setIsFirstAccess] = useState(false);
+  const [mustChangePassword, setMustChangePassword] = useState<UserProfile | null>(null);
 
   const getUsers = (): UserProfile[] => {
     const data = localStorage.getItem('sge_users_db_v3');
@@ -145,9 +151,9 @@ const AuthSystem = ({ onLoginSuccess, registerLog }: { onLoginSuccess: (user: Us
 
       const masterUser: UserProfile = {
         email: inputEmail,
-        password: password,
+        password: TEMP_PASSWORD_DEFAULT,
         fullName: fullName.toUpperCase(),
-        isTemporary: false,
+        isTemporary: true, // Força a troca na primeira entrada
         lotacao: 'Administração Geral',
         role: 'Master',
         status: 'Authorized',
@@ -156,8 +162,13 @@ const AuthSystem = ({ onLoginSuccess, registerLog }: { onLoginSuccess: (user: Us
       };
 
       localStorage.setItem('sge_users_db_v3', JSON.stringify([masterUser]));
-      registerLog('Configuração Master', `Primeiro acesso: Administrador Geral configurado como ${masterUser.email}`, 'Sistema');
-      onLoginSuccess(masterUser);
+      registerLog('Configuração Master', `Administrador Geral configurado: ${masterUser.email}. Senha temporária definida.`, 'Sistema');
+      
+      // Ao configurar o Master, avisamos que a senha temporária é deppen2026
+      alert(`Administrador configurado!\nUse a senha temporária: ${TEMP_PASSWORD_DEFAULT}\nVocê deverá alterá-la no próximo passo.`);
+      setIsFirstAccess(false);
+      setEmail(masterUser.email);
+      setPassword('');
       setLoading(false);
     }, 1000);
   };
@@ -181,6 +192,11 @@ const AuthSystem = ({ onLoginSuccess, registerLog }: { onLoginSuccess: (user: Us
         } else if (user.status === 'Denied') {
           setError(`Acesso negado. Motivo: ${user.justification || 'Não informado'}`);
         } else if (inputPassword === user.password) {
+          if (user.isTemporary) {
+            setMustChangePassword(user);
+            setLoading(false);
+            return;
+          }
           user.lastSeen = new Date().toISOString();
           localStorage.setItem('sge_users_db_v3', JSON.stringify(users));
           registerLog('Login', `Acesso realizado por ${user.email}`, 'Segurança', user.lotacao);
@@ -195,6 +211,74 @@ const AuthSystem = ({ onLoginSuccess, registerLog }: { onLoginSuccess: (user: Us
     }, 800);
   };
 
+  const handleChangePassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setError('As senhas não coincidem.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setError('A nova senha deve ter no mínimo 6 caracteres.');
+      return;
+    }
+    if (newPassword === TEMP_PASSWORD_DEFAULT) {
+      setError('A nova senha não pode ser igual à senha temporária.');
+      return;
+    }
+
+    setLoading(true);
+    setTimeout(() => {
+      const users = getUsers();
+      const idx = users.findIndex(u => u.email === mustChangePassword?.email);
+      if (idx !== -1) {
+        users[idx].password = newPassword;
+        users[idx].isTemporary = false;
+        users[idx].lastSeen = new Date().toISOString();
+        localStorage.setItem('sge_users_db_v3', JSON.stringify(users));
+        registerLog('Alteração de Senha', `Senha obrigatória alterada para ${users[idx].email}`, 'Segurança', users[idx].lotacao);
+        onLoginSuccess(users[idx]);
+      }
+      setLoading(false);
+    }, 1000);
+  };
+
+  if (mustChangePassword) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-slate-950 p-6 overflow-y-auto">
+        <div className="w-full max-w-md bg-white rounded-[40px] shadow-2xl p-10 relative z-10 animate-in zoom-in duration-500 my-auto border-4 border-blue-500">
+          <div className="flex flex-col items-center mb-10 text-center">
+            <div className="p-5 bg-blue-600 rounded-[24px] mb-6 shadow-xl shadow-blue-900/20">
+              <KeyRound className="text-white" size={48} />
+            </div>
+            <h1 className="text-2xl font-black text-slate-950 italic uppercase tracking-tighter leading-none">Redefinição Obrigatória</h1>
+            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-2 tracking-widest leading-none">Sua senha é temporária e deve ser alterada</p>
+          </div>
+
+          {error && (
+            <div className="mb-6 p-4 bg-rose-50 border border-rose-100 text-rose-600 rounded-2xl text-xs font-bold flex items-center gap-3 animate-in shake duration-300">
+              <Zap size={16} className="shrink-0" /> {error}
+            </div>
+          )}
+
+          <form onSubmit={handleChangePassword} className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nova Senha</label>
+              <input type="password" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" placeholder="MÍNIMO 6 CARACTERES" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Confirmar Nova Senha</label>
+              <input type="password" required value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" placeholder="••••••••" />
+            </div>
+            <button type="submit" disabled={loading} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-3 active:scale-[0.98] shadow-2xl shadow-blue-900/20">
+              {loading ? <Loader2 className="animate-spin" size={18} /> : <ShieldCheck size={18} />}
+              Efetivar Nova Senha
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-slate-950 p-6 overflow-y-auto">
       <div className="w-full max-w-md bg-white rounded-[40px] shadow-2xl p-10 relative z-10 animate-in zoom-in duration-500 my-auto">
@@ -204,7 +288,7 @@ const AuthSystem = ({ onLoginSuccess, registerLog }: { onLoginSuccess: (user: Us
           </div>
           <h1 className="text-3xl font-black text-slate-950 italic uppercase tracking-tighter leading-none">SGE <span className="text-blue-600">PPPG</span></h1>
           <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-2 tracking-widest leading-none">
-            {isFirstAccess ? 'Configuração de Primeiro Acesso' : 'Segurança Institucional'}
+            {isFirstAccess ? 'Configuração Inicial do Sistema' : 'Segurança Institucional'}
           </p>
         </div>
 
@@ -217,7 +301,7 @@ const AuthSystem = ({ onLoginSuccess, registerLog }: { onLoginSuccess: (user: Us
         <form onSubmit={isFirstAccess ? handleSetupMaster : handleLogin} className="space-y-6">
           {isFirstAccess && (
             <div className="space-y-2 animate-in slide-in-from-top duration-300">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nome Completo do Administrador</label>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nome Completo do Administrador Geral</label>
               <input type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm uppercase" placeholder="NOME COMPLETO" />
             </div>
           )}
@@ -225,15 +309,24 @@ const AuthSystem = ({ onLoginSuccess, registerLog }: { onLoginSuccess: (user: Us
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">E-mail Institucional</label>
             <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" placeholder="agente@policiapenal.pr.gov.br" />
           </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Senha de Acesso</label>
-            <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" placeholder="••••" />
-          </div>
+          
+          {!isFirstAccess && (
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Senha de Acesso</label>
+              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" placeholder="••••" />
+            </div>
+          )}
           
           <button type="submit" disabled={loading} className={`w-full py-5 ${isFirstAccess ? 'bg-blue-600' : 'bg-slate-950'} text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:opacity-90 transition-all flex items-center justify-center gap-3 active:scale-[0.98] shadow-2xl shadow-blue-900/20`}>
             {loading ? <Loader2 className="animate-spin" size={18} /> : (isFirstAccess ? <UserPlus size={18} /> : <LogIn size={18} />)}
             {isFirstAccess ? 'Configurar Administrador Geral' : 'Entrar no Sistema'}
           </button>
+          
+          {isFirstAccess && (
+            <p className="text-[9px] font-black text-slate-400 text-center uppercase tracking-widest mt-4">
+              Nota: A senha temporária padrão será <span className="text-blue-600 font-black">deppen2026</span>
+            </p>
+          )}
         </form>
       </div>
     </div>
@@ -362,8 +455,8 @@ const App = () => {
       email: newUserEmail.toLowerCase().trim(),
       fullName: newUserName.trim().toUpperCase(),
       lotacao: unit,
-      password: 'deppen2026',
-      isTemporary: false,
+      password: TEMP_PASSWORD_DEFAULT,
+      isTemporary: true, // Novos usuários também são marcados para trocar senha
       role: newUserRole,
       isBlocked: false,
       status: initialStatus,
@@ -381,10 +474,10 @@ const App = () => {
     setUsersList(users);
     if (initialStatus === 'Pending') {
       registerLog('Solicitação Usuário', `Novo acesso solicitado para ${newUser.email}`, 'Sistema');
-      alert(`Cadastro enviado para a fila de liberação do Administrador Geral.`);
+      alert(`Cadastro enviado para a fila de liberação do Administrador Geral.\nSenha temporária: ${TEMP_PASSWORD_DEFAULT}`);
     } else {
       registerLog('Criação Usuário', `Usuário ${newUser.email} cadastrado com perfil ${newUserRole}`, 'Sistema');
-      alert(`Usuário cadastrado e autorizado com sucesso.`);
+      alert(`Usuário cadastrado com sucesso.\nSenha temporária de acesso: ${TEMP_PASSWORD_DEFAULT}`);
     }
     setNewUserEmail(''); setNewUserName('');
   };
@@ -412,10 +505,6 @@ const App = () => {
   const handleMasterEditUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
-    if (editingUser.email === currentUser?.email && editingUser.role === 'Master') {
-        // Permitir editar o próprio nome/lotacao mas não o role para algo inferior se for o único master
-        // Para simplificar, permitimos editar tudo exceto o role Master se for o logado
-    }
     
     const formData = new FormData(e.currentTarget as HTMLFormElement);
     const usersData = localStorage.getItem('sge_users_db_v3');
@@ -689,6 +778,7 @@ const App = () => {
                 <button type="submit" className="w-full py-5 bg-slate-950 text-white rounded-[24px] font-black uppercase text-xs tracking-widest flex items-center justify-center gap-3 hover:bg-slate-800 active:scale-95 transition-all shadow-xl">
                   <PlusCircle size={20} /> Cadastrar Servidor
                 </button>
+                <p className="text-[9px] font-black text-slate-400 text-center uppercase">A senha inicial padrão de todo novo acesso é: <span className="text-blue-600">deppen2026</span></p>
               </form>
 
               <div className="overflow-x-auto">
@@ -718,6 +808,7 @@ const App = () => {
                             <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full w-fit ${u.status === 'Authorized' ? 'bg-emerald-100 text-emerald-600' : u.status === 'Denied' ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>
                               {u.status === 'Authorized' ? 'Autorizado' : u.status === 'Denied' ? 'Negado' : 'Pendente'}
                             </span>
+                            {u.isTemporary && <span className="text-[7px] font-black text-blue-500 uppercase italic">Senha Provisória</span>}
                           </div>
                         </td>
                         <td className="px-6 py-5 text-right flex justify-end gap-2">

@@ -36,7 +36,8 @@ import {
   Stethoscope,
   Archive,
   Save,
-  Activity
+  Activity,
+  UserPlus
 } from 'lucide-react';
 
 // --- Types ---
@@ -113,27 +114,52 @@ const LoadingOverlay = ({ message }: { message: string }) => (
 const AuthSystem = ({ onLoginSuccess, registerLog }: { onLoginSuccess: (user: UserProfile) => void, registerLog: (action: string, details: string, cat: AuditLog['category'], unit?: string) => void }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isFirstAccess, setIsFirstAccess] = useState(false);
 
   const getUsers = (): UserProfile[] => {
     const data = localStorage.getItem('sge_users_db_v3');
-    if (!data) {
-      // Configuração inicial conforme solicitado
-      const defaultUsers: UserProfile[] = [{ 
-        email: 'aladison@policiapenal.pr.gov.br', 
-        password: 'deppen2026', 
-        isTemporary: false, 
-        fullName: 'ALADISON (ADMIN)',
+    return data ? JSON.parse(data) : [];
+  };
+
+  useEffect(() => {
+    if (getUsers().length === 0) {
+      setIsFirstAccess(true);
+    }
+  }, []);
+
+  const handleSetupMaster = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    setTimeout(() => {
+      const inputEmail = email.trim().toLowerCase();
+      if (!inputEmail.endsWith('@policiapenal.pr.gov.br')) {
+        setError('Use um e-mail institucional @policiapenal.pr.gov.br');
+        setLoading(false);
+        return;
+      }
+
+      const masterUser: UserProfile = {
+        email: inputEmail,
+        password: password,
+        fullName: fullName.toUpperCase(),
+        isTemporary: false,
         lotacao: 'Administração Geral',
         role: 'Master',
+        status: 'Authorized',
         isBlocked: false,
-        status: 'Authorized'
-      }];
-      localStorage.setItem('sge_users_db_v3', JSON.stringify(defaultUsers));
-      return defaultUsers;
-    }
-    return JSON.parse(data);
+        requestDate: new Date().toISOString()
+      };
+
+      localStorage.setItem('sge_users_db_v3', JSON.stringify([masterUser]));
+      registerLog('Configuração Master', `Primeiro acesso: Administrador Geral configurado como ${masterUser.email}`, 'Sistema');
+      onLoginSuccess(masterUser);
+      setLoading(false);
+    }, 1000);
   };
 
   const handleLogin = (e: React.FormEvent) => {
@@ -177,7 +203,9 @@ const AuthSystem = ({ onLoginSuccess, registerLog }: { onLoginSuccess: (user: Us
             <ShieldAlert className="text-blue-500" size={48} />
           </div>
           <h1 className="text-3xl font-black text-slate-950 italic uppercase tracking-tighter leading-none">SGE <span className="text-blue-600">PPPG</span></h1>
-          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-2 tracking-widest leading-none">Sistema de Gestão de Escoltas</p>
+          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-2 tracking-widest leading-none">
+            {isFirstAccess ? 'Configuração de Primeiro Acesso' : 'Segurança Institucional'}
+          </p>
         </div>
 
         {error && (
@@ -186,18 +214,25 @@ const AuthSystem = ({ onLoginSuccess, registerLog }: { onLoginSuccess: (user: Us
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-6">
+        <form onSubmit={isFirstAccess ? handleSetupMaster : handleLogin} className="space-y-6">
+          {isFirstAccess && (
+            <div className="space-y-2 animate-in slide-in-from-top duration-300">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nome Completo do Administrador</label>
+              <input type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm uppercase" placeholder="NOME COMPLETO" />
+            </div>
+          )}
           <div className="space-y-2">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">E-mail Institucional</label>
             <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" placeholder="agente@policiapenal.pr.gov.br" />
           </div>
           <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Senha</label>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Senha de Acesso</label>
             <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 outline-none font-bold text-sm" placeholder="••••" />
           </div>
-          <button type="submit" disabled={loading} className="w-full py-5 bg-slate-950 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-3 active:scale-[0.98] shadow-2xl shadow-blue-900/20">
-            {loading ? <Loader2 className="animate-spin" size={18} /> : <LogIn size={18} />}
-            Entrar no SGE
+          
+          <button type="submit" disabled={loading} className={`w-full py-5 ${isFirstAccess ? 'bg-blue-600' : 'bg-slate-950'} text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:opacity-90 transition-all flex items-center justify-center gap-3 active:scale-[0.98] shadow-2xl shadow-blue-900/20`}>
+            {loading ? <Loader2 className="animate-spin" size={18} /> : (isFirstAccess ? <UserPlus size={18} /> : <LogIn size={18} />)}
+            {isFirstAccess ? 'Configurar Administrador Geral' : 'Entrar no Sistema'}
           </button>
         </form>
       </div>
@@ -291,7 +326,6 @@ const App = () => {
       const data = localStorage.getItem('sge_users_db_v3');
       if (data) {
         let list: UserProfile[] = JSON.parse(data);
-        // Administrador de Unidade só vê os dele. Global/Master vê todos.
         if (currentUser?.role === 'UnitAdmin') {
           list = list.filter(u => u.lotacao === currentUser.lotacao);
         }
@@ -321,7 +355,6 @@ const App = () => {
     e.preventDefault();
     if (!newUserEmail.includes('@policiapenal.pr.gov.br')) return alert("Use o e-mail institucional.");
     
-    // Define unidade e status inicial baseado em quem está criando
     const unit = (currentUser?.role === 'Master' || currentUser?.role === 'GlobalAdmin') ? newUserUnit : currentUser!.lotacao!;
     const initialStatus: UserStatus = (currentUser?.role === 'Master') ? 'Authorized' : 'Pending';
     
@@ -379,7 +412,10 @@ const App = () => {
   const handleMasterEditUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
-    if (editingUser.email === 'aladison@policiapenal.pr.gov.br') return alert("Este perfil não pode ser modificado via UI.");
+    if (editingUser.email === currentUser?.email && editingUser.role === 'Master') {
+        // Permitir editar o próprio nome/lotacao mas não o role para algo inferior se for o único master
+        // Para simplificar, permitimos editar tudo exceto o role Master se for o logado
+    }
     
     const formData = new FormData(e.currentTarget as HTMLFormElement);
     const usersData = localStorage.getItem('sge_users_db_v3');
@@ -398,7 +434,7 @@ const App = () => {
   };
 
   const toggleBlockUser = (email: string) => {
-    if (email === 'aladison@policiapenal.pr.gov.br') return alert("O perfil principal não pode ser bloqueado.");
+    if (email === currentUser?.email) return alert("Você não pode bloquear seu próprio acesso.");
     const usersData = localStorage.getItem('sge_users_db_v3');
     const users: UserProfile[] = JSON.parse(usersData || '[]');
     const idx = users.findIndex(u => u.email === email);
@@ -522,11 +558,11 @@ const App = () => {
             <div className="text-center animate-in fade-in zoom-in duration-300 w-full px-4">
               <h1 className="text-2xl font-black italic uppercase leading-none mb-4 tracking-tighter">SGE <span className="text-blue-500">PPPG</span></h1>
               <div className="mt-3 bg-blue-600/10 border border-blue-500/20 rounded-xl overflow-hidden">
-                <div className="p-1 bg-blue-600/20 text-[7px] font-black uppercase text-blue-400 tracking-widest text-center italic leading-none">Visibilidade de Unidade</div>
+                <div className="p-1 bg-blue-600/20 text-[7px] font-black uppercase text-blue-400 tracking-widest text-center italic leading-none">Unidade de Visão</div>
                 {(isMaster || isGlobalAdmin) ? (
                   <div className="relative group">
                     <select value={adminContext} onChange={(e) => setAdminContext(e.target.value as any)} className="w-full bg-transparent text-[10px] font-black uppercase text-white p-3 pr-8 outline-none cursor-pointer appearance-none text-center">
-                      <option value="Administração Geral" className="text-slate-900">Visão Global (Todas)</option>
+                      <option value="Administração Geral" className="text-slate-900">Visão Global</option>
                       <option value="Cadeias Públicas" className="text-slate-900">Cadeias Públicas</option>
                       <option value="Setor de Escolta Prisional" className="text-slate-900">Escolta Prisional</option>
                       <option value="Setor de Operações Especiais" className="text-slate-900">SOE</option>
@@ -564,7 +600,7 @@ const App = () => {
         <header className="bg-white/80 backdrop-blur-xl border-b px-8 py-5 sticky top-0 z-10 flex justify-between items-center no-print">
           <div className="flex items-center gap-4"><h2 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter">{activeTab.toUpperCase()}</h2></div>
           <div className="flex items-center gap-4 w-full max-w-xl">
-            <div className="relative flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} /><input type="text" placeholder="Pesquisar registros..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border rounded-xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 transition-all font-bold" /></div>
+            <div className="relative flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} /><input type="text" placeholder="Pesquisar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border rounded-xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 transition-all font-bold" /></div>
             <div className="relative"><input type="date" value={searchDate} onChange={e => setSearchDate(e.target.value)} className="pl-10 pr-4 py-2.5 border rounded-xl text-sm outline-none focus:ring-4 focus:ring-blue-500/10 transition-all font-bold uppercase" /><Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />{searchDate && <button onClick={() => setSearchDate('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-rose-500 hover:bg-rose-50 rounded-full p-0.5"><X size={12} /></button>}</div>
           </div>
         </header>
@@ -585,14 +621,14 @@ const App = () => {
                       <div className="flex items-center gap-6"><div className={`p-4 rounded-2xl ${r.tipo === 'Internamento' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}>{r.tipo === 'Internamento' ? <Ambulance size={20} /> : <CalendarIcon size={20} />}</div>
                         <div><p className="font-black uppercase text-slate-900 group-hover:text-blue-700 transition-colors tracking-tight">{r.nomePreso}</p><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{r.destino} • {r.unidadeOrigem}</p></div></div>
                       <div className="text-right"><p className="text-sm font-black text-slate-900">{new Date(r.dataHora).toLocaleDateString('pt-BR')}</p><p className="text-[10px] font-bold text-blue-600 uppercase italic">{new Date(r.dataHora).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})} HRS</p></div></div>))}
-                  {registrosExibiveis.filter(r => r.status !== 'Concluído' && !r.dataHoraAlta).length === 0 && <div className="py-20 text-center text-slate-300 font-black uppercase tracking-widest text-xs italic border-2 border-dashed rounded-[32px]">Sem atividades operacionais registradas</div>}
+                  {registrosExibiveis.filter(r => r.status !== 'Concluído' && !r.dataHoraAlta).length === 0 && <div className="py-20 text-center text-slate-300 font-black uppercase text-xs italic border-2 border-dashed rounded-[32px]">Sem atividades registradas</div>}
                 </div></div></div>
           )}
 
           {activeTab === 'solicitacoes' && isMaster && (
             <div className="max-w-6xl mx-auto animate-in fade-in duration-500">
               <div className="bg-white rounded-[40px] p-12 border shadow-2xl">
-                <h3 className="text-2xl font-black uppercase italic mb-8 border-b pb-6 flex items-center gap-3 tracking-tighter text-blue-900"><UserCheck className="text-blue-600" size={32} /> Controle de Liberação de Acessos</h3>
+                <h3 className="text-2xl font-black uppercase italic mb-8 border-b pb-6 flex items-center gap-3 tracking-tighter text-blue-900"><UserCheck className="text-blue-600" size={32} /> Central de Liberações</h3>
                 <div className="space-y-4">
                   {usersList.filter(u => u.status === 'Pending').map(u => (
                     <div key={u.email} className="p-8 bg-slate-50 rounded-[32px] border flex items-center justify-between shadow-sm hover:shadow-md transition-all">
@@ -607,7 +643,7 @@ const App = () => {
                       </div>
                     </div>
                   ))}
-                  {usersList.filter(u => u.status === 'Pending').length === 0 && <div className="text-center py-24 text-slate-300 font-black uppercase text-xs italic border-2 border-dashed rounded-[32px]">Nenhuma solicitação aguardando liberação</div>}
+                  {usersList.filter(u => u.status === 'Pending').length === 0 && <div className="text-center py-24 text-slate-300 font-black uppercase text-xs italic border-2 border-dashed rounded-[32px]">Sem pendências</div>}
                 </div>
               </div>
             </div>
@@ -615,13 +651,13 @@ const App = () => {
 
           {activeTab === 'usuarios' && (isMaster || isIntermediary) && (
             <div className="bg-white rounded-[40px] p-12 border shadow-2xl animate-in fade-in duration-500">
-              <h3 className="text-2xl font-black uppercase italic mb-8 border-b pb-6 flex items-center gap-3 tracking-tighter text-blue-900"><Users className="text-blue-600" size={32} /> Cadastro de Servidores</h3>
+              <h3 className="text-2xl font-black uppercase italic mb-8 border-b pb-6 flex items-center gap-3 tracking-tighter text-blue-900"><Users className="text-blue-600" size={32} /> Gestão de Acessos</h3>
               
               <form onSubmit={handleAddUser} className="space-y-6 mb-12 bg-slate-50 p-10 rounded-[32px] border shadow-inner">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Nome Completo do Servidor</label>
-                    <input type="text" placeholder="EX: FULANO DE TAL" value={newUserName} onChange={e => setNewUserName(e.target.value)} required className="w-full p-4 rounded-2xl border-2 border-slate-200 font-black text-xs uppercase outline-none focus:ring-4 focus:ring-blue-500/10 transition-all bg-white" />
+                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Nome do Servidor</label>
+                    <input type="text" placeholder="EX: NOME SOBRENOME" value={newUserName} onChange={e => setNewUserName(e.target.value)} required className="w-full p-4 rounded-2xl border-2 border-slate-200 font-black text-xs uppercase outline-none focus:ring-4 focus:ring-blue-500/10 transition-all bg-white" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">E-mail Institucional (@policiapenal.pr.gov.br)</label>
@@ -630,7 +666,7 @@ const App = () => {
                   {isMaster && (
                     <>
                       <div className="space-y-1">
-                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Unidade de Lotação</label>
+                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Unidade</label>
                         <select value={newUserUnit} onChange={e => setNewUserUnit(e.target.value as any)} className="w-full p-4 rounded-2xl border-2 border-slate-200 font-black text-[10px] uppercase outline-none bg-white">
                           <option value="Administração Geral">Administração Geral (Global)</option>
                           <option value="Cadeias Públicas">Cadeias Públicas</option>
@@ -639,19 +675,19 @@ const App = () => {
                         </select>
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Perfil de Permissão</label>
+                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Perfil de Acesso</label>
                         <select value={newUserRole} onChange={e => setNewUserRole(e.target.value as any)} className="w-full p-4 rounded-2xl border-2 border-slate-200 font-black text-[10px] uppercase outline-none bg-white">
-                          <option value="Operator">Operador (Escolta/Plantão)</option>
+                          <option value="Operator">Operador</option>
                           <option value="UnitAdmin">Administrador de Unidade</option>
                           <option value="GlobalAdmin">Administrador Intermediário</option>
-                          <option value="Master">Administrador Geral (Total)</option>
+                          <option value="Master">Administrador Geral (Master)</option>
                         </select>
                       </div>
                     </>
                   )}
                 </div>
                 <button type="submit" className="w-full py-5 bg-slate-950 text-white rounded-[24px] font-black uppercase text-xs tracking-widest flex items-center justify-center gap-3 hover:bg-slate-800 active:scale-95 transition-all shadow-xl">
-                  <PlusCircle size={20} /> Registrar e Solicitar Liberação
+                  <PlusCircle size={20} /> Cadastrar Servidor
                 </button>
               </form>
 
@@ -659,7 +695,7 @@ const App = () => {
                 <table className="w-full text-sm">
                   <thead className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-left border-b bg-slate-50/50">
                     <tr>
-                      <th className="px-6 py-4">Servidor / Identificação</th>
+                      <th className="px-6 py-4">Servidor</th>
                       <th className="px-6 py-4">Lotação</th>
                       <th className="px-6 py-4">Perfil</th>
                       <th className="px-6 py-4">Status</th>
@@ -685,9 +721,9 @@ const App = () => {
                           </div>
                         </td>
                         <td className="px-6 py-5 text-right flex justify-end gap-2">
-                          {(isMaster && u.email !== 'aladison@policiapenal.pr.gov.br') && (
+                          {isMaster && (
                             <>
-                              <button onClick={() => setEditingUser(u)} className="p-3 text-blue-600 hover:bg-blue-100 rounded-2xl transition-all" title="Ajustar Perfil"><UserCog size={18}/></button>
+                              <button onClick={() => setEditingUser(u)} className="p-3 text-blue-600 hover:bg-blue-100 rounded-2xl transition-all" title="Editar"><UserCog size={18}/></button>
                               <button onClick={() => toggleBlockUser(u.email)} className={`p-3 rounded-2xl transition-all ${u.isBlocked ? 'text-emerald-600 hover:bg-emerald-100' : 'text-amber-500 hover:bg-amber-100'}`} title={u.isBlocked ? "Ativar" : "Bloquear"}>
                                 {u.isBlocked ? <CheckCircle size={18}/> : <Ban size={18} />}
                               </button>
@@ -707,38 +743,37 @@ const App = () => {
             <div className="bg-white rounded-[32px] border overflow-hidden shadow-sm animate-in fade-in duration-500">
               <div className="p-8 border-b bg-slate-50 flex items-center justify-between">
                 <h3 className="text-lg font-black uppercase tracking-tighter italic flex items-center gap-3">
-                  {activeTab === 'escoltas' ? <><CalendarIcon className="text-blue-600"/> Monitoramento de Escoltas</> : activeTab === 'internamentos' ? <><Ambulance className="text-emerald-600"/> Monitoramento de Internamentos</> : <><Archive className="text-slate-600"/> Histórico Operacional</>}
+                  {activeTab === 'escoltas' ? <><CalendarIcon className="text-blue-600"/> Monitoramento de Escoltas</> : activeTab === 'internamentos' ? <><Ambulance className="text-emerald-600"/> Monitoramento de Internamentos</> : <><Archive className="text-slate-600"/> Histórico de Movimentações</>}
                 </h3>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
-                    <tr><th className="px-8 py-5 text-left">Custodiado / ID</th><th className="px-8 py-5 text-left">Local / Destino</th><th className="px-8 py-5 text-left">Datas / Horários</th><th className="px-8 py-5 text-left">Origem</th><th className="px-8 py-5 text-right no-print">Ação</th></tr>
+                    <tr><th className="px-8 py-5 text-left">Custodiado</th><th className="px-8 py-5 text-left">Destino</th><th className="px-8 py-5 text-left">Horários</th><th className="px-8 py-5 text-left">Origem</th><th className="px-8 py-5 text-right no-print">Ação</th></tr>
                   </thead>
                   <tbody className="divide-y">
                     {filteredRegistros.filter(r => {
-                      const todayStr = new Date().toISOString().split('T')[0];
                       if (activeTab === 'escoltas') return r.tipo !== 'Internamento' && r.status !== 'Concluído';
                       if (activeTab === 'internamentos') return r.tipo === 'Internamento' && !r.dataHoraAlta;
                       return r.status === 'Concluído' || !!r.dataHoraAlta;
                     }).map(reg => (
                       <tr key={reg.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-8 py-5"><p className="font-black uppercase text-slate-900 leading-tight">{reg.nomePreso}</p><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest italic">{reg.id}</p></td>
+                        <td className="px-8 py-5"><p className="font-black uppercase text-slate-900 leading-tight">{reg.nomePreso}</p><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest italic leading-none mt-1">{reg.id}</p></td>
                         <td className="px-8 py-5"><p className="uppercase font-bold text-slate-700 leading-tight">{reg.destino}</p><p className="text-[9px] font-black text-blue-600 uppercase italic leading-none mt-1">{reg.tipo}</p></td>
                         <td className="px-8 py-5">
                           <div className="flex flex-col gap-1">
-                            <p className="text-[9px] font-bold text-slate-400 uppercase italic">Entrada: {new Date(reg.dataHora).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p>
-                            {reg.dataHoraAlta && <p className="text-[9px] font-black text-emerald-600 uppercase">Saída: {new Date(reg.dataHoraAlta).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p>}
+                            <p className="text-[9px] font-bold text-slate-400 uppercase italic leading-none">Início: {new Date(reg.dataHora).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p>
+                            {reg.dataHoraAlta && <p className="text-[9px] font-black text-emerald-600 uppercase leading-none">Alta: {new Date(reg.dataHoraAlta).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</p>}
                           </div>
                         </td>
                         <td className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 italic">{reg.unidadeOrigem}</td>
                         <td className="px-8 py-5 text-right flex justify-end gap-1 no-print">
-                          <button onClick={() => { setSelectedReg(reg); setDetailModalOpen(true); }} className="p-3 text-blue-600 hover:bg-blue-100 rounded-2xl transition-all" title="Ver Detalhes"><Eye size={18} /></button>
+                          <button onClick={() => { setSelectedReg(reg); setDetailModalOpen(true); }} className="p-3 text-blue-600 hover:bg-blue-100 rounded-2xl transition-all" title="Detalhes"><Eye size={18} /></button>
                           {activeTab === 'internamentos' && !reg.dataHoraAlta && (
-                            <button onClick={() => { setSelectedReg(reg); setAltaModalOpen(true); }} className="p-3 text-emerald-600 hover:bg-emerald-100 rounded-2xl transition-all" title="Efetivar Alta"><Stethoscope size={18} /></button>
+                            <button onClick={() => { setSelectedReg(reg); setAltaModalOpen(true); }} className="p-3 text-emerald-600 hover:bg-emerald-100 rounded-2xl transition-all" title="Dar Alta"><Stethoscope size={18} /></button>
                           )}
                           {isMaster && (
-                            <button onClick={() => handleDeleteRegistro(reg.id)} className="p-3 text-rose-500 hover:bg-rose-100 rounded-2xl transition-all" title="Remover"><Trash2 size={18} /></button>
+                            <button onClick={() => handleDeleteRegistro(reg.id)} className="p-3 text-rose-500 hover:bg-rose-100 rounded-2xl transition-all" title="Excluir"><Trash2 size={18} /></button>
                           )}
                         </td></tr>))}
                   </tbody>
@@ -749,18 +784,18 @@ const App = () => {
 
           {activeTab === 'novo' && (
             <div className="max-w-4xl mx-auto bg-white rounded-[40px] p-12 border shadow-2xl animate-in zoom-in duration-500">
-              <h3 className="text-2xl font-black uppercase italic mb-8 border-b pb-6 flex items-center gap-3 tracking-tighter text-blue-900"><PlusCircle className="text-blue-600" size={32} /> Lançamento de Protocolo Operacional</h3>
+              <h3 className="text-2xl font-black uppercase italic mb-8 border-b pb-6 flex items-center gap-3 tracking-tighter text-blue-900"><PlusCircle className="text-blue-600" size={32} /> Lançar Protocolo</h3>
               <form onSubmit={handleAddRegistro} className="space-y-6">
                 <div className="grid grid-cols-2 gap-6">
-                  <div className="col-span-2 space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Tipo de Movimentação</label><select name="tipo" value={formTipo} onChange={e => setFormTipo(e.target.value as TipoRegistro)} className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black uppercase text-xs outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"><option value="Escolta Operacional">Escolta de Presos</option><option value="Internamento">Internamento Hospitalar</option><option value="Operação Externa">Operação Externa / Captura</option></select></div>
-                  <div className="col-span-2 space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Identificação do Custodiado</label><input name="nomePreso" required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black uppercase outline-none focus:ring-4 focus:ring-blue-500/10 transition-all" placeholder="Nome Completo" /></div>
-                  <div className="space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Prontuário</label><input name="prontuario" required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black uppercase outline-none" placeholder="Número do ID" /></div>
-                  <div className="space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Classificação de Risco</label><select name="risco" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black uppercase text-xs outline-none"><option value="Baixo">Risco Baixo</option><option value="Médio">Risco Médio</option><option value="Alto">Risco Alto / Alerta</option></select></div>
-                  <div className="col-span-2 space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Local de Destino</label><input name="destino" required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black uppercase outline-none" placeholder="Unidade, Fórum ou Hospital" /></div>
-                  <div className="col-span-2 space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Início da Movimentação</label><input type="datetime-local" name="dataHora" required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold outline-none" defaultValue={new Date().toISOString().slice(0, 16)} /></div>
-                  <div className="col-span-2 space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Anotações do Plantão</label><textarea name="observacoes" className="w-full p-5 bg-slate-50 border-2 border-slate-200 rounded-3xl min-h-[140px] focus:ring-4 focus:ring-blue-500/10 outline-none font-medium text-sm" placeholder="Detalhes da equipe, viatura ou estado do custodiado..." /></div>
+                  <div className="col-span-2 space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest leading-none">Tipo</label><select name="tipo" value={formTipo} onChange={e => setFormTipo(e.target.value as TipoRegistro)} className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black uppercase text-xs outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"><option value="Escolta Operacional">Escolta de Presos</option><option value="Internamento">Internamento Hospitalar</option><option value="Operação Externa">Operação Externa</option></select></div>
+                  <div className="col-span-2 space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest leading-none">Nome do Custodiado</label><input name="nomePreso" required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black uppercase outline-none focus:ring-4 focus:ring-blue-500/10 transition-all" placeholder="IDENTIFICAÇÃO COMPLETA" /></div>
+                  <div className="space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest leading-none">Prontuário (ID)</label><input name="prontuario" required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black uppercase outline-none" placeholder="ID INTERNO" /></div>
+                  <div className="space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest leading-none">Classificação de Risco</label><select name="risco" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black uppercase text-xs outline-none"><option value="Baixo">Risco Baixo</option><option value="Médio">Risco Médio</option><option value="Alto">Risco Alto</option></select></div>
+                  <div className="col-span-2 space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest leading-none">Destino / Localização</label><input name="destino" required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black uppercase outline-none" placeholder="HOSPITAL, FÓRUM OU UNIDADE" /></div>
+                  <div className="col-span-2 space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest leading-none">Início do Evento</label><input type="datetime-local" name="dataHora" required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold outline-none" defaultValue={new Date().toISOString().slice(0, 16)} /></div>
+                  <div className="col-span-2 space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest leading-none">Observações Técnicas</label><textarea name="observacoes" className="w-full p-5 bg-slate-50 border-2 border-slate-200 rounded-3xl min-h-[140px] focus:ring-4 focus:ring-blue-500/10 outline-none font-medium text-sm" placeholder="Equipe, viatura, prontuário médico..." /></div>
                 </div>
-                <button type="submit" className="w-full py-6 bg-blue-600 text-white rounded-[24px] font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-blue-700 active:scale-95 transition-all">Registrar Protocolo Operacional</button>
+                <button type="submit" className="w-full py-6 bg-blue-600 text-white rounded-[24px] font-black uppercase tracking-[0.2em] shadow-2xl hover:bg-blue-700 active:scale-95 transition-all">Efetivar Registro Operacional</button>
               </form>
             </div>
           )}
@@ -768,7 +803,7 @@ const App = () => {
           {activeTab === 'auditoria' && isMaster && (
             <div className="space-y-8 animate-in fade-in duration-500">
                <div className="bg-white rounded-[32px] border p-10 shadow-sm border-b-4 border-b-emerald-500">
-                  <div className="flex items-center justify-between mb-8"><h3 className="text-xl font-black uppercase italic flex items-center gap-3 tracking-tighter"><Wifi className="text-emerald-500 animate-pulse" /> Servidores Ativos Agora</h3><span className="bg-emerald-100 text-emerald-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm leading-none">{activeUsers.length} ONLINE</span></div>
+                  <div className="flex items-center justify-between mb-8"><h3 className="text-xl font-black uppercase italic flex items-center gap-3 tracking-tighter"><Wifi className="text-emerald-500 animate-pulse" /> Operadores Online</h3><span className="bg-emerald-100 text-emerald-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm leading-none">{activeUsers.length} ONLINE</span></div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {activeUsers.map(u => (
                       <div key={u.email} className="p-5 bg-slate-50 border-2 border-transparent hover:border-emerald-200 rounded-[24px] flex items-center gap-5 transition-all hover:bg-white shadow-sm">
@@ -779,22 +814,22 @@ const App = () => {
                         </div>
                       </div>
                     ))}
-                    {activeUsers.length === 0 && <p className="col-span-3 text-center py-6 text-slate-300 font-black uppercase text-[10px] italic">Sem atividade no momento</p>}
+                    {activeUsers.length === 0 && <p className="col-span-3 text-center py-6 text-slate-300 font-black uppercase text-[10px] italic">Sem atividade remota no momento</p>}
                   </div>
                </div>
                <div className="bg-white rounded-[40px] border overflow-hidden shadow-2xl">
-                 <div className="p-10 border-b bg-slate-50/50 flex items-center justify-between"><h3 className="text-2xl font-black uppercase italic tracking-tighter flex items-center gap-3"><History className="text-blue-600" size={28} /> Logs de Atividade do Sistema</h3></div>
+                 <div className="p-10 border-b bg-slate-50/50 flex items-center justify-between"><h3 className="text-2xl font-black uppercase italic tracking-tighter flex items-center gap-3"><History className="text-blue-600" size={28} /> Logs de Segurança</h3></div>
                  <div className="overflow-x-auto max-h-[600px] custom-scrollbar">
                    <table className="w-full text-sm">
                     <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest sticky top-0 z-10 border-b">
-                      <tr><th className="px-10 py-5 text-left">Timestamp</th><th className="px-10 py-5 text-left">Usuário</th><th className="px-10 py-5 text-left">Ação</th><th className="px-10 py-5 text-left">Resumo</th></tr>
+                      <tr><th className="px-10 py-5 text-left">Horário</th><th className="px-10 py-5 text-left">Usuário</th><th className="px-10 py-5 text-left">Ação</th><th className="px-10 py-5 text-left">Detalhes</th></tr>
                     </thead>
                     <tbody className="divide-y">
                       {auditLogs.map(log => (
                         <tr key={log.id} className="hover:bg-slate-50/30 transition-colors">
                           <td className="px-10 py-5 text-[10px] font-black text-slate-500 italic">{new Date(log.timestamp).toLocaleString('pt-BR')}</td>
                           <td className="px-10 py-5 font-bold text-slate-700 uppercase text-xs leading-none">{log.userEmail}</td>
-                          <td className="px-10 py-5"><span className="uppercase font-black text-blue-900 text-[10px] tracking-widest italic">{log.action}</span></td>
+                          <td className="px-10 py-5"><span className="uppercase font-black text-blue-900 text-[10px] tracking-widest italic leading-none">{log.action}</span></td>
                           <td className="px-10 py-5 text-xs font-bold text-slate-500 uppercase italic tracking-tight">{log.details}</td>
                         </tr>
                       ))}
@@ -817,26 +852,26 @@ const App = () => {
                 </div>
                 <div>
                   <h3 className="text-2xl font-black uppercase italic tracking-tighter">
-                    {validatingUser.type === 'Approve' ? 'Autorizar Acesso' : 'Negar Acesso'}
+                    {validatingUser.type === 'Approve' ? 'Validar Cadastro' : 'Bloquear Cadastro'}
                   </h3>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic leading-none">Poder Administrativo Geral</p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic leading-none">Decisão do Administrador Geral</p>
                 </div>
               </div>
               
               <div className="p-6 bg-slate-50 rounded-[24px] border border-slate-100 mb-8 italic">
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Solicitante</p>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1 leading-none">Solicitante</p>
                 <p className="text-lg font-black text-slate-900 uppercase tracking-tighter leading-none">{validatingUser.user.fullName}</p>
-                <p className="text-[11px] font-bold text-slate-500 uppercase mt-2">{validatingUser.user.email} • {validatingUser.user.lotacao}</p>
+                <p className="text-[11px] font-bold text-slate-500 uppercase mt-2 leading-none">{validatingUser.user.email} • {validatingUser.user.lotacao}</p>
               </div>
 
               <form onSubmit={handleValidateRequest} className="space-y-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest">Motivo da Decisão</label>
-                  <textarea name="justification" required minLength={5} className="w-full p-5 bg-slate-50 border-2 border-slate-200 rounded-[20px] font-bold outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-sm uppercase placeholder:normal-case" placeholder="Descreva brevemente..." />
+                  <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic tracking-widest leading-none">Justificativa Técnica</label>
+                  <textarea name="justification" required minLength={5} className="w-full p-5 bg-slate-50 border-2 border-slate-200 rounded-[20px] font-bold outline-none focus:ring-4 focus:ring-blue-500/10 transition-all text-sm uppercase placeholder:normal-case" placeholder="Insira o motivo da decisão..." />
                 </div>
                 <div className="flex gap-4 pt-4">
                   <button type="submit" className={`flex-1 py-5 ${validatingUser.type === 'Approve' ? 'bg-emerald-600' : 'bg-rose-600'} text-white rounded-[20px] font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all`}>
-                    Confirmar {validatingUser.type === 'Approve' ? 'Liberação' : 'Negação'}
+                    Efetivar {validatingUser.type === 'Approve' ? 'Liberação' : 'Bloqueio'}
                   </button>
                   <button type="button" onClick={() => setValidatingUser(null)} className="px-10 py-5 bg-slate-100 text-slate-500 rounded-[20px] font-black uppercase text-xs tracking-widest hover:bg-slate-200 transition-all">Cancelar</button>
                 </div>
@@ -849,38 +884,38 @@ const App = () => {
       {editingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/95 backdrop-blur-xl animate-in zoom-in duration-300">
           <div className="bg-white rounded-[40px] w-full max-w-md shadow-2xl p-12 relative border-2 border-slate-100">
-            <h3 className="text-2xl font-black uppercase italic mb-10 border-b pb-6 flex items-center gap-3 tracking-tighter text-blue-950">
-              <UserCog className="text-blue-600" size={28} /> Reconfigurar Servidor
+            <h3 className="text-2xl font-black uppercase italic mb-10 border-b pb-6 flex items-center gap-3 tracking-tighter text-blue-950 leading-none">
+              <UserCog className="text-blue-600" size={28} /> Editar Perfil do Servidor
             </h3>
             <form onSubmit={handleMasterEditUser} className="space-y-6">
               <div className="p-6 bg-blue-50 rounded-[24px] border border-blue-100 mb-6 italic text-center leading-none">
-                <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">E-mail Institucional</p>
-                <p className="font-black text-blue-900 text-sm tracking-tight">{editingUser.email}</p>
+                <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1 leading-none">Identificação</p>
+                <p className="font-black text-blue-900 text-sm tracking-tight leading-none">{editingUser.email}</p>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic">Nome Atualizado</label>
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic leading-none">Nome Atualizado</label>
                 <input type="text" name="editFullName" defaultValue={editingUser.fullName} required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black outline-none uppercase text-xs focus:ring-4 focus:ring-blue-500/10 transition-all" />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic">Lotação</label>
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic leading-none">Unidade</label>
                 <select name="editLotacao" defaultValue={editingUser.lotacao} className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black outline-none uppercase text-[10px] focus:ring-4 focus:ring-blue-500/10 transition-all">
-                  <option value="Administração Geral">Administração Geral (Global)</option>
+                  <option value="Administração Geral">Administração Geral</option>
                   <option value="Cadeias Públicas">Cadeias Públicas</option>
                   <option value="Setor de Escolta Prisional">Setor de Escolta Prisional</option>
-                  <option value="Setor de Operações Especiais">Setor de Operações Especiais (SOE)</option>
+                  <option value="Setor de Operações Especiais">SOE</option>
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic">Perfil Operacional</label>
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic leading-none">Permissões de Acesso</label>
                 <select name="editRole" defaultValue={editingUser.role} className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-2xl font-black outline-none uppercase text-[10px] focus:ring-4 focus:ring-blue-500/10 transition-all">
-                  <option value="Operator">Operador Comum</option>
+                  <option value="Operator">Operador</option>
                   <option value="UnitAdmin">Administrador de Unidade</option>
                   <option value="GlobalAdmin">Administrador Intermediário</option>
                   <option value="Master">Administrador Geral (Master)</option>
                 </select>
               </div>
               <div className="flex gap-4 pt-8">
-                <button type="submit" className="flex-1 py-5 bg-blue-600 text-white rounded-[20px] font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-blue-700 active:scale-95 transition-all">Salvar Alterações</button>
+                <button type="submit" className="flex-1 py-5 bg-blue-600 text-white rounded-[20px] font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-blue-700 active:scale-95 transition-all">Salvar</button>
                 <button type="button" onClick={() => setEditingUser(null)} className="px-10 py-5 bg-slate-100 text-slate-500 rounded-[20px] font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all">Descartar</button>
               </div>
             </form>
@@ -892,11 +927,11 @@ const App = () => {
       {altaModalOpen && selectedReg && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-6 bg-slate-900/95 backdrop-blur-xl animate-in zoom-in duration-300">
            <div className="bg-white rounded-[40px] w-full max-w-md shadow-2xl p-10 border border-emerald-100">
-              <div className="flex items-center gap-3 mb-8 border-b pb-4"><Stethoscope className="text-emerald-500" size={32} /><h3 className="text-2xl font-black uppercase italic tracking-tighter">Encerrar Monitoramento</h3></div>
-              <p className="text-[11px] font-bold text-slate-400 uppercase mb-6 bg-emerald-50 p-6 rounded-3xl border border-emerald-100 italic text-center">Registrando saída médica de:<br/><span className="text-emerald-900 block font-black not-italic text-lg mt-2 uppercase tracking-tighter leading-none">{selectedReg.nomePreso}</span></p>
+              <div className="flex items-center gap-3 mb-8 border-b pb-4"><Stethoscope className="text-emerald-500" size={32} /><h3 className="text-2xl font-black uppercase italic tracking-tighter">Finalizar Internamento</h3></div>
+              <p className="text-[11px] font-bold text-slate-400 uppercase mb-6 bg-emerald-50 p-6 rounded-3xl border border-emerald-100 italic text-center leading-none">Registrando alta de:<br/><span className="text-emerald-900 block font-black not-italic text-lg mt-2 uppercase tracking-tighter leading-none">{selectedReg.nomePreso}</span></p>
               <form onSubmit={handleDarAlta} className="space-y-6">
                 <div className="space-y-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-1 italic leading-none">Data e Hora da Alta</label><input type="datetime-local" name="dataHoraAlta" required defaultValue={new Date().toISOString().slice(0, 16)} className="w-full p-5 border-2 border-emerald-50 rounded-[20px] font-black outline-none focus:ring-4 focus:ring-emerald-500/10 transition-all" /></div>
-                <div className="flex gap-4 pt-4"><button type="submit" className="flex-1 py-5 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Efetivar Saída</button><button type="button" onClick={() => setAltaModalOpen(false)} className="px-8 py-5 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] hover:bg-slate-200">Voltar</button></div>
+                <div className="flex gap-4 pt-4"><button type="submit" className="flex-1 py-5 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Confirmar Alta</button><button type="button" onClick={() => setAltaModalOpen(false)} className="px-8 py-5 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] hover:bg-slate-200">Cancelar</button></div>
               </form>
            </div>
         </div>
@@ -907,25 +942,25 @@ const App = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-xl animate-in fade-in duration-300">
           <div className="bg-white rounded-[40px] w-full max-w-3xl shadow-2xl p-12 flex flex-col relative border-2 border-slate-100">
             <button onClick={() => setDetailModalOpen(false)} className="absolute top-8 right-8 p-3 hover:bg-slate-100 rounded-full no-print transition-all"><X size={28} /></button>
-            <div className="text-center mb-10 border-b-2 pb-8 border-dashed border-slate-200"><h3 className="text-3xl font-black uppercase italic tracking-tighter text-blue-950">Guia Operacional SGE</h3><p className="text-[10px] font-black text-slate-400 tracking-[0.3em] uppercase mt-2 italic leading-none">AUTENTICAÇÃO INSTITUCIONAL • PROTOCOLO {selectedReg.id}</p></div>
+            <div className="text-center mb-10 border-b-2 pb-8 border-dashed border-slate-200"><h3 className="text-3xl font-black uppercase italic tracking-tighter text-blue-950 leading-none">Ficha Operacional SGE</h3><p className="text-[10px] font-black text-slate-400 tracking-[0.3em] uppercase mt-2 italic leading-none">DOCUMENTO INSTITUCIONAL • PROTOCOLO {selectedReg.id}</p></div>
             <div className="space-y-10 flex-1 overflow-y-auto custom-scrollbar pr-4">
               <div className="grid grid-cols-2 gap-10">
                 <div className="space-y-6">
-                  <div><p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 italic leading-none">Dados do Custodiado</p><p className="text-2xl font-black uppercase tracking-tighter text-slate-950 leading-none">{selectedReg.nomePreso}</p><p className="text-[11px] font-black text-slate-500 mt-2 uppercase bg-slate-100 w-fit px-3 py-1 rounded-lg">ID: {selectedReg.prontuario}</p></div>
+                  <div><p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 italic leading-none">Custodiado</p><p className="text-2xl font-black uppercase tracking-tighter text-slate-950 leading-none">{selectedReg.nomePreso}</p><p className="text-[11px] font-black text-slate-500 mt-2 uppercase bg-slate-100 w-fit px-3 py-1 rounded-lg leading-none">ID: {selectedReg.prontuario}</p></div>
                   <div><p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 italic leading-none">Movimentação</p><p className="text-lg font-black uppercase text-slate-800 tracking-tight leading-tight">{selectedReg.destino}</p></div>
                 </div>
                 <div className="text-right space-y-6">
-                  <div className={`inline-block px-4 py-2 rounded-xl text-white font-black text-xs uppercase tracking-widest ${selectedReg.risco === 'Alto' ? 'bg-rose-600 animate-pulse' : 'bg-blue-600'}`}>NÍVEL DE RISCO: {selectedReg.risco}</div>
-                  <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 italic leading-none">Fluxo Temporal</p><div className="space-y-2"><p className="text-xs text-slate-950 font-black uppercase bg-blue-50 p-2 rounded-lg leading-none">ENTRADA: {new Date(selectedReg.dataHora).toLocaleString('pt-BR')}</p>{selectedReg.dataHoraAlta && <p className="text-xs text-emerald-700 font-black uppercase bg-emerald-50 p-2 rounded-lg leading-none">SAÍDA: {new Date(selectedReg.dataHoraAlta).toLocaleString('pt-BR')}</p>}</div></div>
+                  <div className={`inline-block px-4 py-2 rounded-xl text-white font-black text-xs uppercase tracking-widest ${selectedReg.risco === 'Alto' ? 'bg-rose-600 animate-pulse' : 'bg-blue-600'}`}>RISCO: {selectedReg.risco}</div>
+                  <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 italic leading-none">Controle de Tempo</p><div className="space-y-2"><p className="text-xs text-slate-950 font-black uppercase bg-blue-50 p-2 rounded-lg leading-none">ENTRADA: {new Date(selectedReg.dataHora).toLocaleString('pt-BR')}</p>{selectedReg.dataHoraAlta && <p className="text-xs text-emerald-700 font-black uppercase bg-emerald-50 p-2 rounded-lg leading-none">ALTA: {new Date(selectedReg.dataHoraAlta).toLocaleString('pt-BR')}</p>}</div></div>
                 </div>
               </div>
               <div className="bg-slate-50 p-10 rounded-[32px] border-2 border-slate-200 shadow-inner">
-                <p className="text-[10px] font-black text-blue-600 uppercase mb-4 italic tracking-widest leading-none">Relatório de Plantão</p>
-                <p className="text-sm font-bold leading-relaxed text-slate-700 uppercase tracking-tight whitespace-pre-wrap">{selectedReg.observacoes || 'NÃO FORAM INFORMADAS OBSERVAÇÕES ADICIONAIS NESTE PROTOCOLO.'}</p>
+                <p className="text-[10px] font-black text-blue-600 uppercase mb-4 italic tracking-widest leading-none">Anotações do Plantão Operacional</p>
+                <p className="text-sm font-bold leading-relaxed text-slate-700 uppercase tracking-tight whitespace-pre-wrap">{selectedReg.observacoes || 'SEM ANOTAÇÕES ADICIONAIS NESTE PROTOCOLO.'}</p>
               </div>
             </div>
             <div className="mt-12 flex gap-4 no-print border-t pt-8">
-              <button onClick={() => window.print()} className="flex-1 py-6 bg-slate-950 text-white rounded-3xl font-black uppercase tracking-widest flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all"><Printer size={22} /> Imprimir Guia</button>
+              <button onClick={() => window.print()} className="flex-1 py-6 bg-slate-950 text-white rounded-3xl font-black uppercase tracking-widest flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all"><Printer size={22} /> Imprimir Ficha</button>
               <button onClick={() => setDetailModalOpen(false)} className="px-12 py-6 bg-slate-100 text-slate-500 rounded-3xl font-black uppercase hover:bg-slate-200 transition-all">Fechar</button>
             </div>
           </div>
@@ -933,7 +968,7 @@ const App = () => {
       )}
 
       <div className={`fixed bottom-0 left-0 ${isSidebarCollapsed ? 'md:left-20' : 'md:left-64'} right-0 p-3 bg-white/70 backdrop-blur-md border-t text-center text-slate-400 text-[9px] font-black uppercase tracking-[0.4em] italic z-10 no-print transition-all duration-300 leading-none`}>
-        SGE PPPG • GERENCIAMENTO DE SEGURANÇA INSTITUCIONAL • 2026
+        SGE PPPG • SISTEMA DE SEGURANÇA INSTITUCIONAL • 2026
       </div>
 
       <style>{`

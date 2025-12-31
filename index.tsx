@@ -1,3 +1,4 @@
+Esse e do tsx 
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';

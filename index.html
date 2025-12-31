@@ -6,75 +6,84 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 <body>
+  <div id="app">Carregando...</div>
 
-<div id="app"></div>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { 
+      getAuth,
+      signInWithEmailAndPassword,
+      onAuthStateChanged,
+      signOut
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { 
+      getFirestore,
+      doc,
+      getDoc
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-  import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    const firebaseConfig = {
+      apiKey: "AIzaSyCDrzmOYxvrUIeVaeu1ffukT6zIil0QCig",
+      authDomain: "sge-pppg.firebaseapp.com",
+      projectId: "sge-pppg",
+      storageBucket: "sge-pppg.firebasestorage.app",
+      messagingSenderId: "472785600880",
+      appId: "1:472785600880:web:ba7c403665a9f26ff4cfb5"
+    };
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyCDrzmOYxvrUIeVaeu1ffukT6zIil0QCig",
-    authDomain: "sge-pppg.firebaseapp.com",
-    projectId: "sge-pppg",
-    storageBucket: "sge-pppg.firebasestorage.app",
-    messagingSenderId: "472785600880",
-    appId: "1:472785600880:web:ba7c403665a9f26ff4cfb5"
-  };
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
 
-  const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
-  const db = getFirestore(app);
-  const tela = document.getElementById("app");
+    const root = document.getElementById("app");
 
-  onAuthStateChanged(auth, async (user) => {
-    if (!user) {
-      tela.innerHTML = `
-        <h2>SGE PPPG</h2>
-        <p>Acesso restrito</p>
-        <input id="email" placeholder="Email">
-        <br><br>
-        <input id="senha" type="password" placeholder="Senha">
-        <br><br>
-        <button id="entrar">Entrar</button>
+    function renderLogin() {
+      root.innerHTML = `
+        <h2>Login</h2>
+        <input id="email" placeholder="Email"><br><br>
+        <input id="password" type="password" placeholder="Senha"><br><br>
+        <button id="loginBtn">Entrar</button>
       `;
 
-      document.getElementById("entrar").onclick = () => {
-        signInWithEmailAndPassword(auth, email.value, senha.value)
-          .catch(() => alert("Erro de login"));
+      document.getElementById("loginBtn").onclick = async () => {
+        const email = document.getElementById("email").value;
+        const password = document.getElementById("password").value;
+        try {
+          await signInWithEmailAndPassword(auth, email, password);
+        } catch (e) {
+          alert("Erro ao entrar");
+        }
       };
-      return;
     }
 
-    const snap = await getDoc(doc(db, "users", user.uid));
+    async function renderDashboard(user) {
+      const snap = await getDoc(doc(db, "users", user.uid));
 
-    if (!snap.exists()) {
-      tela.innerHTML = "<p>Usuário sem permissão</p>";
-      return;
+      if (!snap.exists()) {
+        root.innerHTML = "<h3>Usuário sem autorização</h3>";
+        return;
+      }
+
+      const role = snap.data().role;
+
+      root.innerHTML = `
+        <h1>SGE PPPG</h1>
+        <p>${user.email}</p>
+        <p>Nível: <b>${role}</b></p>
+        ${role === "admin_geral" ? "<p>Acesso total</p>" : ""}
+        <button id="logout">Sair</button>
+      `;
+
+      document.getElementById("logout").onclick = () => signOut(auth);
     }
 
-    const dados = snap.data();
-
-    tela.innerHTML = `
-      <h1>SGE PPPG</h1>
-      <p>${user.email}</p>
-      <p>Nível: ${dados.role}</p>
-    `;
-
-    if (dados.role === "admin") {
-      tela.innerHTML += "<p>Administrador geral</p>";
-    }
-
-    if (dados.role === "manager") {
-      tela.innerHTML += "<p>Administrador intermediário</p>";
-    }
-
-    if (dados.role === "operator") {
-      tela.innerHTML += "<p>Operador</p>";
-    }
-  });
-</script>
-
+    onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        renderLogin();
+      } else {
+        renderDashboard(user);
+      }
+    });
+  </script>
 </body>
 </html>
